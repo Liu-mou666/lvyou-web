@@ -23,64 +23,57 @@ function normalize(s: string): string {
 
 /** 解析城市/地名 → 最佳铁路站点 */
 export function resolveStation(input: string): RailStation | null {
-  const q = normalize(input);
-  if (!q) return null;
-
-  let exact = STATIONS.find((s) => normalize(s.name) === q);
-  if (exact) return exact;
-
-  exact = STATIONS.find(
-    (s) => s.aliases.some((a) => normalize(a) === q) || normalize(s.name).includes(q) || q.includes(normalize(s.name)),
-  );
-  if (exact) return exact;
-
-  const partial = STATIONS.filter(
-    (s) => s.name.includes(q) || q.includes(normalize(s.name)) || s.aliases.some((a) => a.includes(q) || q.includes(a)),
-  );
-  if (partial.length === 0) return null;
-
-  return partial.sort((a, b) => a.hubTier - b.hubTier)[0];
+  const list = listStationsForCity(input);
+  return list[0] ?? null;
 }
 
-/** 购票用站点：优先高铁站（如 张家界→张家界西） */
+/** 同城全部铁路站（张家界→张家界+张家界西，苏州→苏州+苏州北…） */
+export function listStationsForCity(input: string): RailStation[] {
+  const q = normalize(input);
+  if (!q) return [];
+
+  const matched = STATIONS.filter(
+    (s) =>
+      normalize(s.name) === q ||
+      normalize(s.name).includes(q) ||
+      q.includes(normalize(s.name)) ||
+      s.aliases.some((a) => normalize(a) === q || q.includes(normalize(a)) || normalize(a).includes(q)),
+  );
+
+  const seen = new Set<string>();
+  const unique: RailStation[] = [];
+  for (const s of matched.sort((a, b) => a.hubTier - b.hubTier)) {
+    if (!seen.has(s.telecode)) {
+      seen.add(s.telecode);
+      unique.push(s);
+    }
+  }
+  return unique;
+}
+
+/** 12306 / 聚合 API 可识别的站名变体 */
+export function stationQueryNames(st: RailStation): string[] {
+  const names = new Set<string>([st.name, ...st.aliases]);
+  const base = st.name.replace(/站$/g, "");
+  if (base.endsWith("西") || base.endsWith("南") || base.endsWith("北") || base.endsWith("东")) {
+    names.add(base.slice(0, -1));
+  }
+  return [...names];
+}
+
+/** 购票用站点：返回同城候选中的主站（不再硬绑单一高铁站） */
 export function resolveTrainStation(input: string): RailStation | null {
+  const candidates = listStationsForCity(input);
+  if (candidates.length > 0) return candidates[0];
+
   const q = normalize(input);
   if (!q) return null;
 
-  // 已知城市 → 高铁主站映射
-  const cityToHsr: Record<string, string> = {
-    张家界: "张家界西",
-    长沙: "长沙南",
-    昆明: "昆明南",
-    贵阳: "贵阳北",
-    成都: "成都东",
-    重庆: "重庆北",
-    西安: "西安北",
-    郑州: "郑州东",
-    武汉: "汉口",
-    苏州: "苏州",
-    上海: "上海虹桥",
-  };
-
-  for (const [city, hsr] of Object.entries(cityToHsr)) {
-    if (q.includes(city) || city.includes(q)) {
-      const st = STATIONS.find((s) => s.name === hsr);
-      if (st) return st;
-    }
-  }
-
-  const base = resolveStation(input);
-  if (!base) return null;
-
-  // 同城市有 XX西/XX南 则优先
-  const hsrVariant = STATIONS.find(
-    (s) =>
-      s.name.startsWith(base.name) &&
-      s.name !== base.name &&
-      (s.name.endsWith("西") || s.name.endsWith("南") || s.name.includes("虹桥")) &&
-      s.hubTier <= base.hubTier + 1,
+  const partial = STATIONS.filter(
+    (s) => s.name.includes(q) || q.includes(normalize(s.name)) || s.aliases.some((a) => a.includes(q)),
   );
-  return hsrVariant ?? base;
+  if (partial.length === 0) return null;
+  return partial.sort((a, b) => a.hubTier - b.hubTier)[0];
 }
 
 export function getHubStations(): RailStation[] {

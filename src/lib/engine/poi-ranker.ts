@@ -57,8 +57,8 @@ export function scoreAttraction(poi: POI, ctx: AttractionRankContext): { score: 
     score += 6;
     reasons.push(`门票约 ¥${poi.pricePerPerson}/人`);
   } else if (poi.pricePerPerson === 0) {
-    score += 8;
-    reasons.push("免费/未知票价");
+    score += 5;
+    reasons.push(poi.freeAttraction ? "免费开放" : "门票未收录");
   }
 
   if (ctx.priority === "value" && poi.pricePerPerson > 0) {

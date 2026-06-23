@@ -35,29 +35,28 @@ export function fliggyTrainSearchUrl(from: string, to: string, date: string): st
   return `https://h5.m.taobao.com/trip/train/search.html?depCityName=${enc(from)}&arrCityName=${enc(to)}&depDate=${enc(date)}`;
 }
 
-/**
- * 携程门票搜索（piao 域名，避免 you.ctrip.com/sightsearch 404）
- */
+/** 携程站内搜索（酒店/门票/体验通用，避免跳首页或域名失效） */
+export function ctripUnifiedSearchUrl(keyword: string, tab?: "hotel" | "ticket" | "LocalActivity"): string {
+  const q = enc(keyword.trim());
+  if (tab) return `https://www.ctrip.com/search/searchList?keyword=${q}&tab=${tab}`;
+  return `https://www.ctrip.com/search/searchList?keyword=${q}`;
+}
+
+/** 携程门票 */
 export function ctripTicketSearchUrl(cityName: string, keyword: string, cityId?: number | null): string {
-  const q = enc(keyword);
-  const city = enc(cityName.replace(/市$/g, ""));
+  const kw = keyword.trim();
   if (cityId) {
-    return `https://piao.ctrip.com/ticket/list?keyword=${q}&cid=${cityId}&cityName=${city}`;
+    return `https://piao.ctrip.com/ticket/list?keyword=${enc(kw)}&cid=${cityId}&cityName=${enc(cityName.replace(/市$/g, ""))}`;
   }
-  return `https://piao.ctrip.com/ticket/list?keyword=${q}&cityName=${city}`;
+  return ctripUnifiedSearchUrl(kw, "ticket");
 }
 
-/** 携程本地玩乐/体验（妆造、旅拍等） */
-export function ctripActivitySearchUrl(cityName: string, keyword: string, cityId?: number | null): string {
-  const q = enc(keyword);
-  const city = enc(cityName.replace(/市$/g, ""));
-  if (cityId) {
-    return `https://activities.ctrip.com/list/activity/list?keyword=${q}&cityId=${cityId}&cityName=${city}`;
-  }
-  return `https://www.ctrip.com/search/searchList?keyword=${q}&tab=LocalActivity&cityName=${city}`;
+/** 携程本地玩乐/妆造旅拍 */
+export function ctripActivitySearchUrl(cityName: string, keyword: string, _cityId?: number | null): string {
+  return ctripUnifiedSearchUrl(`${cityName.replace(/市$/g, "")} ${keyword.trim()}`, "LocalActivity");
 }
 
-/** 携程 PC 酒店搜索（带入住日期 + 精确店名） */
+/** 携程酒店（完整店名 + 入住日期） */
 export function ctripHotelSearchUrl(
   cityName: string,
   keyword: string,
@@ -65,24 +64,23 @@ export function ctripHotelSearchUrl(
   checkOut: string,
   cityId?: number | null,
 ): string {
-  const kw = enc(keyword);
-  const city = enc(cityName.replace(/市$/g, ""));
+  const kw = enc(keyword.trim());
   if (cityId) {
     return `https://hotels.ctrip.com/hotels/list?city=${cityId}&keyword=${kw}&checkin=${checkIn}&checkout=${checkOut}`;
   }
-  return `https://hotels.ctrip.com/hotels/list?keyword=${kw}&checkin=${checkIn}&checkout=${checkOut}&cityName=${city}`;
+  return ctripUnifiedSearchUrl(`${cityName.replace(/市$/g, "")} ${keyword.trim()}`, "hotel");
 }
 
-/** 大众点评 PC 搜索 — 店名+地址提高命中率 */
-export function dianpingSearchUrl(cityId: number, keyword: string, addressHint?: string): string {
-  const q = addressHint ? `${keyword} ${addressHint}`.trim() : keyword;
-  return `https://www.dianping.com/search/keyword/${cityId}/0_${enc(q)}`;
+/** 大众点评 PC — 仅用店名（地址太长会搜不到） */
+export function dianpingSearchUrl(cityId: number, keyword: string): string {
+  return `https://www.dianping.com/search/keyword/${cityId}/0_${enc(keyword.trim())}`;
 }
 
-/** 美团搜索（餐饮备选） */
-export function meituanSearchUrl(cityName: string, keyword: string, addressHint?: string): string {
-  const q = addressHint ? `${keyword} ${addressHint}`.trim() : keyword;
-  return `https://www.meituan.com/s/${enc(cityName.replace(/市$/g, "") + " " + q)}`;
+/** 美团移动端搜索（PC /s/ 路径常 404） */
+export function meituanSearchUrl(cityName: string, keyword: string): string {
+  const q = enc(keyword.trim());
+  const city = enc(cityName.replace(/市$/g, ""));
+  return `https://mob.meituan.com/ssr/page/searchlist?keyword=${q}&entrance=1&city=${city}`;
 }
 
 /** 高德 POI 详情（最可靠） */
@@ -96,12 +94,5 @@ export function amapNavUrl(name: string, lng: number, lat: number): string {
 
 /** 飞猪酒店搜索 */
 export function fliggyHotelSearchUrl(city: string, keyword: string, checkIn: string): string {
-  return `https://s.fliggy.com/hotel?q=${enc(city + " " + keyword)}&checkIn=${checkIn}`;
-}
-
-/** 从地址提取商圈/路名作为搜索辅助 */
-export function addressSearchHint(address?: string): string | undefined {
-  if (!address) return undefined;
-  const m = address.match(/[\u4e00-\u9fa5]{2,8}(?:路|街|巷|里|广场|商圈|地区|区)/);
-  return m?.[0]?.slice(0, 12);
+  return `https://s.fliggy.com/hotel?q=${enc(city + " " + keyword.trim())}&checkIn=${checkIn}`;
 }

@@ -1,4 +1,5 @@
 import type { Evidence } from "@/lib/types";
+import { stationQueryNames, type RailStation } from "../../data/station-db";
 
 export interface TrainSegment {
   trainNo?: string;
@@ -16,6 +17,8 @@ export interface TrainQueryResult {
   direct: TrainSegment[];
   source: string;
   fetchedAt: string;
+  queriedFrom?: string;
+  queriedTo?: string;
 }
 
 type JuheTrainRow = {
@@ -58,43 +61,71 @@ function mapJuheRow(t: JuheTrainRow, fromStation: string, toStation: string): Tr
   };
 }
 
-/** 聚合数据火车票 API（配置 JUHE_TRAIN_KEY 后启用真实车次） */
+async function fetchJuheOnce(fromStation: string, toStation: string, date: string): Promise<TrainQueryResult | null> {
+  const key = getJuheKey();
+  if (!key) return null;
+
+  const url = new URL("https://apis.juhe.cn/fapigw/train/query");
+  url.searchParams.set("key", key);
+  url.searchParams.set("departure", fromStation);
+  url.searchParams.set("arrival", toStation);
+  url.searchParams.set("date", date);
+
+  const res = await fetch(url.toString(), { cache: "no-store" });
+  if (!res.ok) return null;
+
+  const data = (await res.json()) as {
+    error_code?: number;
+    result?: { list?: JuheTrainRow[] };
+  };
+
+  if (data.error_code !== 0 || !data.result?.list?.length) return null;
+
+  const direct = data.result.list
+    .map((t) => mapJuheRow(t, fromStation, toStation))
+    .filter((t): t is TrainSegment => t != null)
+    .sort((a, b) => a.priceSecond - b.priceSecond);
+
+  if (!direct.length) return null;
+
+  return {
+    direct,
+    source: "聚合数据·12306",
+    fetchedAt: new Date().toISOString(),
+    queriedFrom: fromStation,
+    queriedTo: toStation,
+  };
+}
+
+/** 单对站名查询 */
 export async function queryJuheTrains(
   fromStation: string,
   toStation: string,
   date: string,
 ): Promise<TrainQueryResult | null> {
-  const key = getJuheKey();
-  if (!key) return null;
-
   try {
-    const url = new URL("https://apis.juhe.cn/fapigw/train/query");
-    url.searchParams.set("key", key);
-    url.searchParams.set("departure", fromStation);
-    url.searchParams.set("arrival", toStation);
-    url.searchParams.set("date", date);
-
-    const res = await fetch(url.toString(), { cache: "no-store" });
-    if (!res.ok) return null;
-
-    const data = (await res.json()) as {
-      error_code?: number;
-      result?: { list?: JuheTrainRow[] };
-    };
-
-    if (data.error_code !== 0 || !data.result?.list?.length) return null;
-
-    const direct = data.result.list
-      .map((t) => mapJuheRow(t, fromStation, toStation))
-      .filter((t): t is TrainSegment => t != null)
-      .sort((a, b) => a.priceSecond - b.priceSecond);
-
-    if (!direct.length) return null;
-
-    return { direct, source: "聚合数据·12306", fetchedAt: new Date().toISOString() };
+    return await fetchJuheOnce(fromStation, toStation, date);
   } catch {
     return null;
   }
+}
+
+/** 多站名变体查询（张家界/张家界西 等逐个试） */
+export async function queryJuheTrainsMulti(
+  fromSt: RailStation,
+  toSt: RailStation,
+  date: string,
+): Promise<TrainQueryResult | null> {
+  const fromNames = stationQueryNames(fromSt);
+  const toNames = stationQueryNames(toSt);
+
+  for (const from of fromNames) {
+    for (const to of toNames) {
+      const result = await queryJuheTrains(from, to, date);
+      if (result) return result;
+    }
+  }
+  return null;
 }
 
 export function isTrainLegVerified(juhe?: TrainQueryResult | null): boolean {
@@ -103,10 +134,14 @@ export function isTrainLegVerified(juhe?: TrainQueryResult | null): boolean {
 
 export function juheEvidence(result: TrainQueryResult, from: string, to: string): Evidence {
   const top = result.direct[0];
+  const routeLabel =
+    result.queriedFrom && result.queriedTo
+      ? `${result.queriedFrom}→${result.queriedTo}`
+      : `${from}→${to}`;
   return {
     claim: top?.trainNo
-      ? `12306 数据源查到 ${top.trainNo}，${top.departTime} 发，${top.seatType} ¥${top.priceSecond}/人`
-      : `已查询 ${from}→${to} 当日可售车次`,
+      ? `12306 查到 ${routeLabel} ${top.trainNo}，${top.departTime} 发，${top.seatType} ¥${top.priceSecond}/人`
+      : `已查询 ${routeLabel} 当日可售车次`,
     sources: result.direct.slice(0, 4).map((t) => ({
       name: result.source,
       value: `${t.trainNo ?? "车次"} ${t.departTime}-${t.arriveTime} ${t.seatType} ¥${t.priceSecond}${t.ticketLeft ? ` 余${t.ticketLeft}` : ""}`,

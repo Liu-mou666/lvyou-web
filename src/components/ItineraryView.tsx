@@ -137,9 +137,11 @@ function TimelineEntry({ item }: { item: TimelineItem }) {
         {poi.priceNote && (
           <p className="mt-2 text-[11px] leading-relaxed text-amber-800">{poi.priceNote}</p>
         )}
-        {poi.cost > 0 && !poi.priceNote && (
+        {poi.cost > 0 ? (
           <p className="mt-2 text-sm font-medium tabular-nums text-warm-text">高德参考 ¥{poi.cost}（2人）</p>
-        )}
+        ) : poi.freeAttraction || (poi.type === "attraction" && poi.pricePerPerson === 0) ? (
+          <p className="mt-2 text-sm font-medium text-emerald-700">免费开放 / 未收录门票</p>
+        ) : null}
         {item.note && (
           <div className="mt-2 rounded-lg bg-warm-50 px-2.5 py-2">
             <p className="text-[11px] font-semibold text-warm-700">推荐理由</p>

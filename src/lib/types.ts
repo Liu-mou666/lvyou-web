@@ -92,6 +92,8 @@ export interface POI extends Location {
   compositeRating?: number;
   priceNote?: string;
   evidence?: Evidence[];
+  /** 高德无票价且名称暗示免费开放 */
+  freeAttraction?: boolean;
 }
 
 export interface WeatherForecast {

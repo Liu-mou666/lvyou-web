@@ -149,6 +149,14 @@ function getMealKeywords(cityName: string, mealTime: MealTime, mealPref?: MealPr
   return [...base, ...local.slice(0, 1)];
 }
 
+function isLikelyFreeAttraction(name: string, poiType: string): boolean {
+  if (/步行街|老街|古镇|历史街区|滨江|运河|山塘|平江路|步行街|广场|公园$|绿道|湿地(?!公园收费)/.test(name)) {
+    return !/景区|风景区|门票|索道|游船/.test(name);
+  }
+  if (/博物馆|纪念馆/.test(name) && !/收费/.test(name)) return true;
+  return false;
+}
+
 function amapToPOI(
   raw: AmapPoi,
   type: POIType,
@@ -164,7 +172,18 @@ function amapToPOI(
 
   const costRaw = parseFloat(raw.biz_ext?.cost ?? "0") || 0;
   const { open, close } = parseOpenHours(raw.biz_ext?.open_time);
-  let pricePerPerson = costRaw > 0 ? costRaw : defaultPrice(type, mealTime, budget);
+
+  let pricePerPerson = 0;
+  if (costRaw > 0) {
+    pricePerPerson = costRaw;
+  } else if (type === "attraction") {
+    // 无票价数据时不编造 80 元，标为 0
+    pricePerPerson = 0;
+  } else {
+    pricePerPerson = defaultPrice(type, mealTime, budget);
+  }
+
+  const likelyFree = type === "attraction" && pricePerPerson === 0 && isLikelyFreeAttraction(raw.name, raw.type);
 
   if (type === "hotel") {
     const maxNight = MAX_HOTEL_NIGHT[budget ?? "moderate"];
@@ -177,7 +196,7 @@ function amapToPOI(
   if (type === "attraction") {
     const maxTicket = MAX_ATTRACTION[budget ?? "moderate"];
     if (pricePerPerson > maxTicket * 1.5) return null;
-    if (pricePerPerson > maxTicket) pricePerPerson = maxTicket;
+    // 不再把票价强行压到 80 展示
   }
 
   const authority = matchAuthorityTag(raw.name, cityName);
@@ -187,14 +206,15 @@ function amapToPOI(
 
   return {
     id: raw.id,
-    name: raw.name.replace(/[（(].*?[）)]/g, "").trim(),
+    name: raw.name.trim(),
     type,
     category,
     lat,
     lng,
     durationMinutes: estimateDuration(type, raw.type, raw.name),
-    cost: type === "hotel" ? Math.round(pricePerPerson) : Math.round(pricePerPerson * 2),
+    cost: type === "hotel" ? Math.round(pricePerPerson) : pricePerPerson > 0 ? Math.round(pricePerPerson * 2) : 0,
     pricePerPerson,
+    freeAttraction: likelyFree,
     rating: Math.min(5, rating || 4.0),
     compositeRating: Math.round(compositeRating * 10) / 10,
     reviewCount: Math.round((rating || 4) * 10000),
