@@ -1,26 +1,152 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #fff9f5;
+  --foreground: #2d2a26;
+  --warm-surface: #ffffff;
+  --warm-primary: #d4652f;
+  --warm-primary-hover: #c25628;
+  --warm-accent: #f5a623;
+  --warm-border: #e8e2da;
+  --warm-muted: #7a7168;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-warm-50: #fff9f5;
+  --color-warm-100: #fdf3eb;
+  --color-warm-200: #f5e6d8;
+  --color-warm-300: #e8d4c4;
+  --color-warm-400: #e8965a;
+  --color-warm-500: #d4652f;
+  --color-warm-600: #c25628;
+  --color-warm-700: #a34722;
+  --color-warm-accent: #f5a623;
+  --color-warm-glow: #ffe8cc;
+  --color-warm-text: #2d2a26;
+  --color-warm-muted: #7a7168;
+  --font-sans: var(--font-noto-sans);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-noto-sans), "PingFang SC", "Microsoft YaHei", sans-serif;
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+  -webkit-tap-highlight-color: rgba(212, 101, 47, 0.12);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 移动端触控区域 */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* 表单输入：16px 防止 Android/iOS 自动缩放 */
+input[type="text"],
+input[type="number"],
+input[type="date"],
+input[type="email"],
+input[type="tel"],
+textarea,
+select {
+  font-size: 16px;
+}
+
+@media (min-width: 640px) {
+  input[type="text"],
+  input[type="number"],
+  input[type="date"],
+  input[type="email"],
+  input[type="tel"],
+  textarea,
+  select {
+    font-size: 14px;
+  }
+}
+
+/* 卡片通用 */
+.card-warm {
+  border-radius: 1rem;
+  border: 1px solid var(--warm-border);
+  background: var(--warm-surface);
+  box-shadow: 0 1px 3px rgba(45, 42, 38, 0.04), 0 4px 16px rgba(212, 101, 47, 0.06);
+}
+
+/* 主按钮 */
+.btn-primary {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  border-radius: 0.875rem;
+  background: linear-gradient(135deg, #e8965a 0%, #d4652f 100%);
+  font-weight: 600;
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(212, 101, 47, 0.35);
+  transition: transform 0.15s, box-shadow 0.15s;
+  touch-action: manipulation;
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* 横向滑动榜单（安卓友好） */
+.snap-scroll-x {
+  display: flex;
+  gap: 0.75rem;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding-bottom: 0.25rem;
+}
+
+.snap-scroll-x::-webkit-scrollbar {
+  display: none;
+}
+
+.snap-scroll-x > * {
+  scroll-snap-align: start;
+  flex-shrink: 0;
+}
+
+.safe-bottom {
+  padding-bottom: max(1rem, var(--safe-bottom));
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: #fdf3eb;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #e8d4c4;
+  border-radius: 2px;
 }

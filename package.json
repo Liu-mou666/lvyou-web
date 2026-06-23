@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "npm run serve",
+    "serve": "next build --webpack && next start -p 3000",
+    "dev:hot": "next dev --webpack --no-server-fast-refresh",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

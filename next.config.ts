@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  experimental: {
+    mcpServer: false,
+  },
+  logging: false,
 };
 
 export default nextConfig;

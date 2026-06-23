@@ -1,0 +1,19 @@
+{
+  "name": "旅优 · 智能旅游攻略",
+  "short_name": "旅优",
+  "description": "高德 POI + 铁路站码库 + 5A 名录，可溯源的旅行决策参考",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fff9f5",
+  "theme_color": "#d4652f",
+  "orientation": "portrait-primary",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
