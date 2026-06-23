@@ -129,17 +129,17 @@ export default function TransportCompare({
   if (!trainRoutes?.length && !flightOption && !busOption) return null;
 
   return (
-    <section className="card-warm overflow-hidden">
+    <section className="card-warm overflow-hidden min-w-0">
       <div className="border-b border-warm-200 bg-warm-100/50 px-4 py-3.5 sm:px-5 sm:py-4">
-        <h3 className="text-base font-semibold text-warm-text">去程交通对比</h3>
-        <p className="mt-1 text-xs leading-relaxed text-warm-muted">
+        <h3 className="text-sm font-bold text-warm-text sm:text-base">去程交通</h3>
+        <p className="mt-1 text-[11px] leading-relaxed break-anywhere text-warm-muted sm:text-xs">
           基于全国铁路站码库{trainRoutes?.[0]?.trainNumbers?.length ? " + 12306 车次查询" : ""}
           {routeDistanceKm ? ` · 直线约 ${routeDistanceKm} km` : ""}
           {recommended ? ` · 推荐：${recommended}` : ""}
         </p>
       </div>
 
-      <div className="space-y-3 p-3 sm:p-5">
+      <div className="space-y-3 p-3 min-w-0 sm:p-5">
         {trainRoutes?.map((r) => <RouteRow key={r.id} route={r} variant="train" />)}
         {flightOption && <RouteRow route={flightOption} variant="flight" />}
         {busOption && <RouteRow route={busOption} variant="bus" />}

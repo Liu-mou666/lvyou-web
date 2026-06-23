@@ -38,6 +38,37 @@ export function optimizeRoute(pois: POI[]): POI[] {
     route.push(remaining.splice(nearestIdx, 1)[0]);
   }
 
+  return optimizeRoute2Opt(route);
+}
+
+/** 2-opt 路径改进：在最近邻结果上进一步缩短路程 */
+export function optimizeRoute2Opt(pois: POI[]): POI[] {
+  if (pois.length <= 3) return pois;
+
+  const route = [...pois];
+  let improved = true;
+  let iterations = 0;
+  const maxIter = pois.length * 4;
+
+  while (improved && iterations < maxIter) {
+    improved = false;
+    iterations++;
+    for (let i = 0; i < route.length - 2; i++) {
+      for (let j = i + 2; j < route.length; j++) {
+        const a = route[i];
+        const b = route[i + 1];
+        const c = route[j];
+        const d = j + 1 < route.length ? route[j + 1] : null;
+        const before = distance(a, b) + (d ? distance(c, d) : 0);
+        const after = distance(a, c) + (d ? distance(b, d) : 0);
+        if (after < before - 0.01) {
+          const segment = route.slice(i + 1, j + 1).reverse();
+          route.splice(i + 1, j - i, ...segment);
+          improved = true;
+        }
+      }
+    }
+  }
   return route;
 }
 

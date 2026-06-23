@@ -27,6 +27,7 @@ import type {
 } from "./types";
 import { applyBudgetToItinerary, inferBudgetLevelFromTotal } from "./engine/budget-planner";
 import { weatherLabel } from "./weather";
+import type { GenerateStreamEvent } from "./types/stream";
 
 const PACE_ATTRACTIONS: Record<TravelPace, number> = {
   relaxed: 2,
@@ -418,6 +419,178 @@ export async function generateItinerary(request: TripRequest): Promise<Itinerary
   };
 
   return applyBudgetToItinerary(base, req);
+}
+
+/** 流式生成：按阶段推送进度与部分结果 */
+export async function generateItineraryWithProgress(
+  request: TripRequest,
+  emit: (event: GenerateStreamEvent) => void,
+): Promise<Itinerary> {
+  const emitProgress = (step: string, percent: number, message: string) => {
+    emit({ type: "progress", step, percent, message });
+  };
+
+  try {
+    emitProgress("start", 5, "正在解析目的地…");
+
+    const travelers = request.travelers ?? 2;
+    const effectiveBudget =
+      request.totalBudget && request.totalBudget > 0
+        ? inferBudgetLevelFromTotal(request.totalBudget, request.days, travelers)
+        : request.budget;
+    const req: TripRequest = { ...request, budget: effectiveBudget, travelers };
+
+    const cityInfo = await resolveCityInfo(req.city);
+    emitProgress("city", 12, `已定位 ${cityInfo.formattedAddress}`);
+
+    const perDay = PACE_ATTRACTIONS[req.pace];
+    const needed = req.days * perDay;
+    const departureCity = req.departureCity?.trim() || "上海";
+    const noteKeywords = parseNotesKeywords(req.notes);
+
+    emitProgress("fetch", 18, "正在查询天气与交通…");
+
+    const forecastsPromise = fetchRealWeatherForecast(cityInfo, req.startDate, req.days);
+    const ticketsPromise =
+      departureCity !== cityInfo.name
+        ? buildOptimalTravelTickets(req, cityInfo).catch(() => null)
+        : Promise.resolve(null);
+    const specialPromise =
+      noteKeywords.length > 0 ? fetchSpecialPOIs(cityInfo, noteKeywords) : Promise.resolve([]);
+
+    const [forecasts, ticketResult, specialPOIs] = await Promise.all([
+      forecastsPromise,
+      ticketsPromise,
+      specialPromise,
+    ]);
+
+    if (ticketResult?.trainRoutes) {
+      emit({
+        type: "partial",
+        patch: {
+          city: cityInfo.name,
+          cityInfo: {
+            name: cityInfo.name,
+            province: cityInfo.province,
+            adcode: cityInfo.adcode,
+            formattedAddress: cityInfo.formattedAddress,
+          },
+          trainRoutes: ticketResult.trainRoutes,
+          flightOption: ticketResult.flightOption,
+          busOption: ticketResult.busOption,
+          recommendedTransport: ticketResult.recommended,
+          routeDistanceKm: ticketResult.routeInfo?.distanceKm,
+          transportEvidence: ticketResult.transportEvidence,
+        },
+      });
+      emitProgress("transport", 35, "交通方案已就绪");
+    }
+
+    emitProgress("attractions", 40, "正在筛选必去景点与实拍图…");
+
+    const attractionResult = await fetchRealAttractions(cityInfo, req.style, needed + 12, {
+      priority: req.priority,
+      budget: req.budget,
+      totalBudget: req.totalBudget,
+    });
+
+    const { pool: rawPool, topRanked } = attractionResult;
+    const attractionPool = rawPool.map((p) => adjustAttractionForPace(p, req.pace));
+
+    if (attractionPool.length === 0 && specialPOIs.length === 0) {
+      throw new Error(`未在「${cityInfo.formattedAddress}」找到足够景点，请换更具体的地名`);
+    }
+
+    emit({
+      type: "partial",
+      patch: { topAttractions: topRanked },
+    });
+    emitProgress("ranked", 55, `必去榜 TOP${topRanked.length} 已生成`);
+
+    const dayAttractionLists = distributeAttractions(attractionPool, req.days, perDay);
+    const dayPlans: DayPlan[] = [];
+    const daySpan = 40 / req.days;
+
+    for (let d = 0; d < req.days; d++) {
+      emitProgress(
+        `day-${d}`,
+        55 + Math.round(daySpan * d),
+        `正在规划第 ${d + 1} 天行程…`,
+      );
+      const dayPlan = await buildDayPlan(
+        d,
+        forecasts[d].date,
+        forecasts[d],
+        dayAttractionLists[d] ?? [],
+        cityInfo,
+        req,
+        specialPOIs,
+      );
+      dayPlans.push(dayPlan);
+      emit({ type: "day", day: d + 1, dayPlan });
+    }
+
+    const allScores: number[] = [];
+    dayPlans.forEach((day) =>
+      day.items.forEach((item) => {
+        if (item.realtime) allScores.push(item.realtime.score);
+      }),
+    );
+    const avgRealtimeScore = allScores.length ? allScores.reduce((a, b) => a + b, 0) / allScores.length : 80;
+    const avgRating =
+      attractionPool.slice(0, needed).reduce((s, p) => s + p.rating, 0) / Math.max(needed, 1);
+    const rainyDays = forecasts.filter((f) => f.condition === "rainy").length;
+
+    const trainRoutes = ticketResult?.trainRoutes;
+    const travelCost = trainRoutes?.find((r) => r.recommended)?.totalPrice ?? 0;
+    const dayCost = dayPlans.reduce((sum, d) => sum + d.totalCost, 0);
+    const noteSummary =
+      specialPOIs.length > 0 ? ` · 已安排：${specialPOIs.map((p) => p.name).join("、")}` : "";
+
+    const base: Itinerary = {
+      city: cityInfo.name,
+      cityInfo: {
+        name: cityInfo.name,
+        province: cityInfo.province,
+        adcode: cityInfo.adcode,
+        formattedAddress: cityInfo.formattedAddress,
+      },
+      trainRoutes,
+      flightOption: ticketResult?.flightOption,
+      busOption: ticketResult?.busOption,
+      recommendedTransport: ticketResult?.recommended,
+      routeDistanceKm: ticketResult?.routeInfo?.distanceKm,
+      days: dayPlans,
+      totalCost: dayCost + travelCost,
+      generatedAt: new Date().toISOString(),
+      optimizationScore: calcOptimizationScore(
+        dayPlans.map((d) => d.totalDistance),
+        avgRating,
+        Math.max(60, 100 - rainyDays * 15),
+        avgRealtimeScore,
+      ),
+      realtimeNote: `${new Date().toLocaleString("zh-CN")} · ${cityInfo.province}${cityInfo.name}${noteSummary} · 数据来源见各卡片「查看依据」`,
+      dataSources: [
+        "高德地图",
+        "全国铁路站码库",
+        "文旅部5A名录",
+        ticketResult?.trainRoutes?.[0]?.dataSource ?? "",
+      ].filter(Boolean),
+      transportEvidence: ticketResult?.transportEvidence,
+      totalBudget: req.totalBudget,
+      topAttractions: topRanked,
+    };
+
+    emitProgress("budget", 92, "正在优化预算…");
+    const finalItinerary = applyBudgetToItinerary(base, req);
+    emitProgress("done", 100, "行程生成完成");
+    emit({ type: "complete", itinerary: finalItinerary });
+    return finalItinerary;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "生成失败";
+    emit({ type: "error", message });
+    throw err;
+  }
 }
 
 export async function refreshDayItinerary(request: TripRequest, dayIndex: number): Promise<DayPlan | null> {

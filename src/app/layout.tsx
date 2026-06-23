@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Noto_Sans_SC } from "next/font/google";
+import QueryProvider from "@/components/providers/QueryProvider";
 import "./globals.css";
 
 const notoSans = Noto_Sans_SC({
@@ -37,7 +38,9 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-CN" className={`${notoSans.variable} h-full`}>
-      <body className="min-h-full antialiased text-warm-text">{children}</body>
+      <body className="min-h-full antialiased text-warm-text">
+        <QueryProvider>{children}</QueryProvider>
+      </body>
     </html>
   );
 }

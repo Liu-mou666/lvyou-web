@@ -12,6 +12,8 @@ import type { BudgetLevel, MealPref, MealTime, POI, POIType, RankedAttraction, T
 import { rankAttractions, type AttractionRankContext } from "../engine/poi-ranker";
 import scenicList from "@/data/scenic-5a.json";
 import { fetchPOIDetail } from "./amap";
+import pLimit from "p-limit";
+import { cacheGet, cacheKey, cacheSet } from "../cache/memory";
 
 const STYLE_KEYWORDS: Record<TravelStyle, string[]> = {
   culture: ["5A景区", "博物馆", "名胜古迹"],
@@ -312,16 +314,33 @@ export async function fetchRealAttractions(
     totalBudget?: number;
   },
 ): Promise<AttractionFetchResult> {
+  const cacheId = cacheKey([
+    "attr",
+    cityInfo.adcode,
+    style,
+    String(limit),
+    opts?.priority ?? "value",
+    opts?.budget ?? "moderate",
+    String(opts?.totalBudget ?? 0),
+  ]);
+  const cached = cacheGet<AttractionFetchResult>(cacheId);
+  if (cached) return cached;
+
   const keywords = [...STYLE_KEYWORDS[style], ...get5aSearchTerms(cityInfo.name)];
   const all: POI[] = [];
+  const searchLimit = pLimit(2);
 
-  for (const kw of keywords) {
-    const pois = await searchPOI({ keywords: kw, city: cityInfo.name, types: "110000", offset: 25 });
-    for (const p of pois) {
-      const mapped = amapToPOI(p, "attraction", style, cityInfo.name);
-      if (mapped) all.push(mapped);
-    }
-  }
+  await Promise.all(
+    keywords.map((kw) =>
+      searchLimit(async () => {
+        const pois = await searchPOI({ keywords: kw, city: cityInfo.name, types: "110000", offset: 25 });
+        for (const p of pois) {
+          const mapped = amapToPOI(p, "attraction", style, cityInfo.name);
+          if (mapped) all.push(mapped);
+        }
+      }),
+    ),
+  );
 
   if (all.length < limit) {
     const cityShort = cityInfo.name.replace(/市|区|县$/g, "");
@@ -356,22 +375,28 @@ export async function fetchRealAttractions(
   const topRanked = rankAttractions(deduped, rankCtx, Math.max(15, limit));
   const fetchCount = Math.max(limit + 8, topRanked.length);
 
-  const verified: POI[] = [];
   const ordered = topRanked.map((r) => r.poi);
   const rest = deduped.filter((p) => !ordered.some((o) => o.id === p.id));
   const candidates = [...ordered, ...rest].slice(0, fetchCount);
 
-  for (const poi of candidates) {
-    const withPhoto = await enrichPhotos(poi);
-    verified.push(await enrichPOIVerified(withPhoto, cityInfo));
-  }
+  const enrichLimit = pLimit(3);
+  const verified = await Promise.all(
+    candidates.map((poi) =>
+      enrichLimit(async () => {
+        const withPhoto = await enrichPhotos(poi);
+        return enrichPOIVerified(withPhoto, cityInfo);
+      }),
+    ),
+  );
 
   const topWithLinks = topRanked.slice(0, 15).map((item, i) => {
     const enriched = verified.find((p) => p.id === item.poi.id) ?? item.poi;
     return { ...item, rank: i + 1, poi: enriched };
   });
 
-  return { pool: verified.slice(0, fetchCount), topRanked: topWithLinks };
+  const result = { pool: verified.slice(0, fetchCount), topRanked: topWithLinks };
+  cacheSet(cacheId, result, 6 * 60 * 60 * 1000);
+  return result;
 }
 
 export async function fetchNearbyRestaurants(

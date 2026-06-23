@@ -1,36 +1,30 @@
 import { generateItinerary } from "@/lib/itinerary-generator";
+import { tripRequestSchema } from "@/lib/validation/trip-schema";
 import type { TripRequest } from "@/lib/types";
 import { NextResponse } from "next/server";
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as TripRequest;
-
-    if (!body.city?.trim()) {
-      return NextResponse.json({ error: "请输入目的地城市" }, { status: 400 });
+    const body = await request.json();
+    const parsed = tripRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "参数无效" }, { status: 400 });
     }
 
-    if (!body.days || body.days < 1 || body.days > 7) {
-      return NextResponse.json({ error: "行程天数需在 1-7 天之间" }, { status: 400 });
-    }
+    const trip: TripRequest = {
+      ...parsed.data,
+      departureCity: parsed.data.departureCity?.trim(),
+      travelers: parsed.data.travelers ?? 2,
+      priority: parsed.data.priority ?? "value",
+      transportPref: parsed.data.transportPref ?? "mixed",
+      mealPref: parsed.data.mealPref ?? "local",
+      avoidCrowd: parsed.data.avoidCrowd ?? false,
+      maxMealBudget: parsed.data.maxMealBudget ?? 0,
+      totalBudget: parsed.data.totalBudget ?? 0,
+      notes: parsed.data.notes?.trim() || undefined,
+    };
 
-    const itinerary = await generateItinerary({
-      city: body.city.trim(),
-      departureCity: body.departureCity?.trim(),
-      days: body.days,
-      style: body.style ?? "mixed",
-      pace: body.pace ?? "normal",
-      budget: body.budget ?? "moderate",
-      startDate: body.startDate ?? new Date().toISOString().split("T")[0],
-      travelers: 2,
-      priority: body.priority ?? "value",
-      transportPref: body.transportPref ?? "mixed",
-      mealPref: body.mealPref ?? "local",
-      avoidCrowd: body.avoidCrowd ?? false,
-      maxMealBudget: body.maxMealBudget ?? 0,
-      totalBudget: body.totalBudget ?? 0,
-      notes: body.notes,
-    });
+    const itinerary = await generateItinerary(trip);
 
     return NextResponse.json(itinerary);
   } catch (error) {
