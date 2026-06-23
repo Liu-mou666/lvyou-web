@@ -40,9 +40,12 @@ export function scoreAttraction(poi: POI, ctx: AttractionRankContext): { score: 
 
   if (poi.reviewCount >= 30000) {
     score += 8;
-    reasons.push("高德高热");
+    reasons.push(`高德 ${formatReviewCount(poi.reviewCount)} 条评价·高热`);
   } else if (poi.reviewCount >= 10000) {
     score += 4;
+    reasons.push(`评价 ${formatReviewCount(poi.reviewCount)} 条`);
+  } else if (poi.reviewCount >= 1000) {
+    reasons.push(`评价 ${formatReviewCount(poi.reviewCount)} 条`);
   }
 
   if (hasPhoto(poi)) {
@@ -72,7 +75,13 @@ export function scoreAttraction(poi: POI, ctx: AttractionRankContext): { score: 
   }
 
   reasons.push(`高德 ${poi.rating} 分`);
-  return { score: Math.round(Math.min(100, score)), reasons: [...new Set(reasons)].slice(0, 5) };
+  return { score: Math.round(Math.min(100, score)), reasons: [...new Set(reasons)].slice(0, 6) };
+}
+
+function formatReviewCount(n: number): string {
+  if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
 }
 
 export function rankAttractions(

@@ -154,6 +154,12 @@ export interface TrainRoute {
   evidence?: Evidence[];
   trainNumbers?: string[];
   dataSource?: string;
+  /** 是否经 12306 数据源验证当日有列次 */
+  verified?: boolean;
+  verifiedAt?: string;
+  /** 为何推荐此方案 */
+  recommendReason?: string;
+  priceNote?: string;
 }
 
 export interface TravelTicketOption {

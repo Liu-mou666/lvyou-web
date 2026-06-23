@@ -61,6 +61,8 @@ export function buildRealtimeMetrics(
   }
 
   if (poi.authorityTag) reasons.push(`文旅部 ${poi.authorityTag}`);
+  if (poi.reviewCount >= 5000) reasons.push(`评价热度 ${formatReviewCount(poi.reviewCount)}`);
+  else if (poi.reviewCount >= 500) reasons.push(`${poi.reviewCount} 条评价`);
   reasons.push(`高德 ${poi.rating} 分`);
   if (poi.pricePerPerson > 0) reasons.push(`参考 ¥${poi.pricePerPerson}/人`);
   if (poi.priceNote) reasons.push(poi.priceNote);
@@ -148,4 +150,10 @@ export function valueRankLabel(rank?: RealtimeMetrics["valueRank"]): string {
   if (rank === "high") return "实惠优选";
   if (rank === "medium") return "性价比尚可";
   return "";
+}
+
+function formatReviewCount(n: number): string {
+  if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
 }

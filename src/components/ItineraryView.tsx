@@ -134,10 +134,41 @@ function TimelineEntry({ item }: { item: TimelineItem }) {
           {rt && <span className="rounded-md bg-warm-100 px-2 py-0.5 text-[11px] text-warm-muted">综合 {rt.score}</span>}
         </div>
         {poi.address && <p className="mt-2 text-xs leading-relaxed break-anywhere text-warm-muted">{poi.address}</p>}
-        {poi.cost > 0 && (
-          <p className="mt-2 text-sm font-medium tabular-nums text-warm-text">参考 ¥{poi.cost}（2人）</p>
+        {poi.priceNote && (
+          <p className="mt-2 text-[11px] leading-relaxed text-amber-800">{poi.priceNote}</p>
         )}
-        {item.note && <p className="mt-2 text-xs text-warm-600 break-anywhere">{item.note}</p>}
+        {poi.cost > 0 && !poi.priceNote && (
+          <p className="mt-2 text-sm font-medium tabular-nums text-warm-text">高德参考 ¥{poi.cost}（2人）</p>
+        )}
+        {item.note && (
+          <div className="mt-2 rounded-lg bg-warm-50 px-2.5 py-2">
+            <p className="text-[11px] font-semibold text-warm-700">推荐理由</p>
+            <p className="mt-0.5 text-xs leading-relaxed text-warm-600 break-anywhere">{item.note}</p>
+          </div>
+        )}
+        {rt && rt.scoreReasons.length > 0 && (
+          <ul className="mt-2 space-y-0.5">
+            {rt.scoreReasons.map((r) => (
+              <li key={r} className="text-[11px] text-warm-muted before:mr-1 before:text-warm-400 before:content-['·']">{r}</li>
+            ))}
+          </ul>
+        )}
+        {item.alternatives && item.alternatives.length > 0 && (
+          <details className="mt-2 rounded-lg border border-warm-200 bg-warm-50/50 px-2.5 py-2">
+            <summary className="cursor-pointer text-[11px] font-semibold text-warm-600">
+              备选 {item.alternatives.length} 家（为何未选）
+            </summary>
+            <ul className="mt-1.5 space-y-1">
+              {item.alternatives.map((alt) => (
+                <li key={alt.id} className="text-[11px] text-warm-muted break-anywhere">
+                  {alt.name} · ★{alt.rating}
+                  {alt.pricePerPerson > 0 ? ` · 约¥${alt.pricePerPerson}/人` : ""}
+                  {alt.reviewCount >= 100 ? ` · ${alt.reviewCount}评` : ""}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
         {item.evidence && item.evidence.length > 0 && <div className="mt-2"><EvidencePanel evidence={item.evidence} compact /></div>}
         <PlatformButtons item={item} />
       </div>
@@ -171,9 +202,18 @@ function DayContent({ day, showHeader = true }: { day: Itinerary["days"][0]; sho
       </div>
       {day.hotel && (
         <div className="mt-3 rounded-xl border border-warm-300 bg-warm-glow/40 p-3">
-          <p className="text-xs font-medium text-warm-700">当晚住宿</p>
+          <p className="text-xs font-medium text-warm-700">当晚住宿推荐</p>
           <p className="mt-1 font-semibold text-warm-text break-anywhere">{day.hotel.name}</p>
-          <p className="text-sm font-bold text-warm-600">¥{day.hotel.pricePerPerson}/晚</p>
+          {day.hotel.priceNote ? (
+            <p className="mt-1 text-[11px] leading-relaxed text-amber-800">{day.hotel.priceNote}</p>
+          ) : day.hotel.pricePerPerson > 0 ? (
+            <p className="text-sm text-warm-muted">高德参考 ¥{day.hotel.pricePerPerson}/晚</p>
+          ) : null}
+          {day.hotelAlternatives && day.hotelAlternatives.length > 0 && (
+            <p className="mt-1 text-[10px] text-warm-muted">
+              备选：{day.hotelAlternatives.map((h) => h.name).join("、")}
+            </p>
+          )}
           <POILinks poi={day.hotel} />
         </div>
       )}

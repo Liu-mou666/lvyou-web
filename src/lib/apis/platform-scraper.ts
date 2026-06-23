@@ -1,23 +1,21 @@
 /**
- * POI 平台链接：高德详情为主（100%可用），携程/点评为 PC 搜索页
+ * POI 平台链接：高德详情为主；携程/点评用「店名+地址」精准搜索
  */
 import { getDianpingCityId } from "./city-resolver";
 import type { CityInfo } from "./city-resolver";
 import type { POI, PlatformLink, DealInfo } from "../types";
 import {
+  addressSearchHint,
   amapNavUrl,
   amapPlaceUrl,
+  ctripActivitySearchUrl,
   ctripHotelSearchUrl,
   ctripTicketSearchUrl,
   dianpingSearchUrl,
   fliggyHotelSearchUrl,
   getCtripCityId,
+  meituanSearchUrl,
 } from "../data/platform-urls";
-import { ctripTrainUrl } from "../data/station-db";
-
-function cleanName(name: string) {
-  return name.replace(/[（(【\[].*?[）)\]】]/g, "").trim();
-}
 
 function nextDay(date: string): string {
   const d = new Date(date);
@@ -25,20 +23,25 @@ function nextDay(date: string): string {
   return d.toISOString().split("T")[0];
 }
 
+function isExperienceShop(poi: POI): boolean {
+  return /汉服|旅拍|妆造|写真|跟拍|摄影/.test(`${poi.name}${poi.description}`);
+}
+
 export function buildPOILinks(
   poi: POI,
   cityInfo: CityInfo,
   opts?: { checkIn?: string },
 ): PlatformLink[] {
-  const name = cleanName(poi.name);
+  const fullName = poi.name.trim();
   const city = cityInfo.name.replace(/市$/g, "");
   const ctripCityId = getCtripCityId(cityInfo.adcode);
   const dpCityId = getDianpingCityId(cityInfo.adcode);
+  const addrHint = addressSearchHint(poi.address);
   const checkIn = opts?.checkIn ?? new Date().toISOString().split("T")[0];
   const checkOut = nextDay(checkIn);
 
   const links: PlatformLink[] = [
-    { platform: "amap", label: "高德地图", action: "导航", url: amapNavUrl(name, poi.lng, poi.lat) },
+    { platform: "amap", label: "高德地图", action: "导航", url: amapNavUrl(fullName, poi.lng, poi.lat) },
     { platform: "amap", label: "高德", action: "详情·电话·营业时间", url: amapPlaceUrl(poi.id) },
   ];
 
@@ -48,29 +51,54 @@ export function buildPOILinks(
   }
 
   if (poi.type === "restaurant" || poi.type === "cafe") {
-    links.push({
-      platform: "dianping",
-      label: "大众点评",
-      action: "搜店铺",
-      url: dianpingSearchUrl(dpCityId, name),
-    });
-  }
-
-  if (poi.type === "attraction") {
     links.push(
-      {
-        platform: "ctrip",
-        label: "携程",
-        action: "搜门票",
-        url: ctripTicketSearchUrl(city, name, ctripCityId),
-      },
       {
         platform: "dianping",
         label: "大众点评",
-        action: "搜景点",
-        url: dianpingSearchUrl(dpCityId, name),
+        action: "查看店铺",
+        url: dianpingSearchUrl(dpCityId, fullName, addrHint),
+      },
+      {
+        platform: "meituan",
+        label: "美团",
+        action: "查看店铺",
+        url: meituanSearchUrl(city, fullName, addrHint),
       },
     );
+  }
+
+  if (poi.type === "attraction") {
+    if (isExperienceShop(poi)) {
+      links.push(
+        {
+          platform: "dianping",
+          label: "大众点评",
+          action: "查看店铺",
+          url: dianpingSearchUrl(dpCityId, fullName, addrHint),
+        },
+        {
+          platform: "ctrip",
+          label: "携程",
+          action: "搜体验",
+          url: ctripActivitySearchUrl(city, fullName, ctripCityId),
+        },
+      );
+    } else {
+      links.push(
+        {
+          platform: "ctrip",
+          label: "携程",
+          action: "搜门票",
+          url: ctripTicketSearchUrl(city, fullName, ctripCityId),
+        },
+        {
+          platform: "dianping",
+          label: "大众点评",
+          action: "查看店铺",
+          url: dianpingSearchUrl(dpCityId, fullName, addrHint),
+        },
+      );
+    }
   }
 
   if (poi.type === "hotel") {
@@ -78,20 +106,20 @@ export function buildPOILinks(
       {
         platform: "ctrip",
         label: "携程",
-        action: "查房价",
-        url: ctripHotelSearchUrl(city, name, checkIn, checkOut, ctripCityId),
+        action: `查${checkIn}房价`,
+        url: ctripHotelSearchUrl(city, fullName, checkIn, checkOut, ctripCityId),
       },
       {
         platform: "dianping",
         label: "大众点评",
-        action: "查酒店",
-        url: dianpingSearchUrl(dpCityId, name + " 酒店"),
+        action: "查看酒店",
+        url: dianpingSearchUrl(dpCityId, fullName, addrHint),
       },
       {
         platform: "fliggy",
         label: "飞猪",
-        action: "查房价",
-        url: fliggyHotelSearchUrl(city, name, checkIn),
+        action: `查${checkIn}房价`,
+        url: fliggyHotelSearchUrl(city, fullName, checkIn),
       },
     );
   }
@@ -99,38 +127,16 @@ export function buildPOILinks(
   return links;
 }
 
-export function buildVerifiedDeals(poi: POI, links: PlatformLink[]): DealInfo[] {
-  const base = poi.pricePerPerson || (poi.cost > 0 ? poi.cost / 2 : 0);
-  if (base <= 0) return [];
-
-  const amap = links.find((l) => l.platform === "amap" && l.action.includes("详情"));
-  const ctrip = links.find((l) => l.platform === "ctrip");
-
-  if (poi.type === "attraction") {
-    return [{
-      platform: "高德参考",
-      dealPrice: Math.round(base * 2),
-      label: "门票参考（2人）",
-      url: amap?.url ?? ctrip?.url ?? amapPlaceUrl(poi.id),
-      discount: "以高德/平台实时为准",
-    }];
-  }
-  if (poi.type === "hotel" && ctrip) {
-    return [{
-      platform: "携程",
-      dealPrice: Math.round(base),
-      label: "每晚参考",
-      url: ctrip.url,
-      discount: "参考价·需登录查实时",
-    }];
-  }
+/** 不再展示估算「团购价」，仅引导至平台查实时价 */
+export function buildVerifiedDeals(_poi: POI, _links: PlatformLink[]): DealInfo[] {
   return [];
 }
 
 export function calcValueScore(poi: POI): number {
   const price = Math.max(poi.pricePerPerson, poi.cost / 2, 1);
   const rating = poi.compositeRating ?? poi.rating;
-  return Math.round(rating * 18 + Math.max(0, 100 - price * 0.6) * 0.4);
+  const reviewBonus = poi.reviewCount >= 5000 ? 8 : poi.reviewCount >= 1000 ? 4 : 0;
+  return Math.round(rating * 18 + Math.max(0, 100 - price * 0.6) * 0.4 + reviewBonus);
 }
 
 export async function enrichPOIVerified(
@@ -140,13 +146,27 @@ export async function enrichPOIVerified(
 ): Promise<POI> {
   const links = buildPOILinks(poi, cityInfo, opts);
   const deals = buildVerifiedDeals(poi, links);
+  const checkIn = opts?.checkIn;
+
+  let priceNote: string | undefined;
+  if (poi.type === "hotel") {
+    priceNote = checkIn
+      ? `房价需登录携程/飞猪查看 ${checkIn} 当日实价，高德标价仅供参考`
+      : "房价以携程/飞猪当日实价为准";
+  } else if (poi.type === "restaurant" || poi.type === "cafe") {
+    priceNote =
+      poi.pricePerPerson > 0
+        ? `人均 ¥${poi.pricePerPerson} 来自高德，以点评/美团当日菜单为准`
+        : "价格以点评/美团当日为准";
+  } else if (poi.type === "attraction" && poi.pricePerPerson > 0) {
+    priceNote = `门票 ¥${poi.pricePerPerson}/人来自高德，以携程/窗口当日票价为准`;
+  }
+
   return {
     ...poi,
     links,
     deals,
     valueScore: calcValueScore(poi),
-    priceNote: poi.pricePerPerson > 0 ? "参考价·点击高德详情或携程查看实时" : undefined,
+    priceNote,
   };
 }
-
-export { ctripTrainUrl };

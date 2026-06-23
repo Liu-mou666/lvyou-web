@@ -70,6 +70,20 @@ function RouteRow({ route, variant }: { route: TrainRoute; variant: "train" | "f
             )}
           </div>
           <p className="mt-1.5 text-xs leading-relaxed text-warm-muted sm:text-sm">{route.description}</p>
+          {route.recommendReason && route.recommended && (
+            <p className="mt-2 rounded-lg bg-emerald-50 px-2.5 py-2 text-xs leading-relaxed text-emerald-800">
+              <span className="font-semibold">为何推荐：</span>{route.recommendReason}
+            </p>
+          )}
+          {route.priceNote && (
+            <p className="mt-1.5 text-[10px] text-amber-700">{route.priceNote}</p>
+          )}
+          {route.verified === false && (
+            <p className="mt-1.5 text-[10px] font-medium text-amber-700">⚠ 未验证余票，不展示估算票价</p>
+          )}
+          {route.verified && route.verifiedAt && (
+            <p className="mt-1 text-[10px] text-emerald-700">✓ 12306 数据源验证 · {new Date(route.verifiedAt).toLocaleString("zh-CN")}</p>
+          )}
           {route.trainNumbers && route.trainNumbers.length > 0 && (
             <p className="mt-1 text-xs text-warm-600">车次：{route.trainNumbers.join("、")}</p>
           )}
@@ -79,8 +93,14 @@ function RouteRow({ route, variant }: { route: TrainRoute; variant: "train" | "f
         </div>
         <div className="flex items-center justify-between gap-4 rounded-xl bg-warm-100 px-3 py-2 sm:block sm:bg-transparent sm:p-0 sm:text-right">
           <div>
-            <p className="text-xl font-bold tabular-nums text-warm-600">¥{route.totalPrice}</p>
-            <p className="text-[10px] text-warm-muted">2人二等座合计</p>
+            {route.verified !== false && route.totalPrice > 0 ? (
+              <>
+                <p className="text-xl font-bold tabular-nums text-warm-600">¥{route.totalPrice}</p>
+                <p className="text-[10px] text-warm-muted">2人二等座合计</p>
+              </>
+            ) : (
+              <p className="text-sm font-medium text-warm-muted">请链接查价</p>
+            )}
           </div>
           <div className="text-right sm:mt-1">
             <p className="text-sm font-medium tabular-nums text-warm-text">{route.totalHours}h</p>
@@ -133,7 +153,7 @@ export default function TransportCompare({
       <div className="border-b border-warm-200 bg-warm-100/50 px-4 py-3.5 sm:px-5 sm:py-4">
         <h3 className="text-sm font-bold text-warm-text sm:text-base">去程交通</h3>
         <p className="mt-1 text-[11px] leading-relaxed break-anywhere text-warm-muted sm:text-xs">
-          基于全国铁路站码库{trainRoutes?.[0]?.trainNumbers?.length ? " + 12306 车次查询" : ""}
+          仅展示 12306 数据源验证有票方案{trainRoutes?.[0]?.verified ? "（已配置 JUHE_TRAIN_KEY）" : ""}
           {routeDistanceKm ? ` · 直线约 ${routeDistanceKm} km` : ""}
           {recommended ? ` · 推荐：${recommended}` : ""}
         </p>

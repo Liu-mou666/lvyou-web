@@ -8,6 +8,7 @@ import {
   resolveCityInfo,
 } from "./apis/data-fetcher";
 import { buildOptimalTravelTickets } from "./apis/travel-tickets";
+import { buildPoiRecommendNote } from "./engine/recommend-text";
 import type { CityInfo } from "./apis/city-resolver";
 import { calcOptimizationScore, optimizeRoute, totalRouteDistance } from "./optimizer";
 import { planRealRoute } from "./apis/route-planner";
@@ -122,7 +123,7 @@ async function pickMealNearby(
   ctx: RealtimeContext,
   request: TripRequest,
   usedIds: Set<string>,
-): Promise<{ poi: POI; realtime: RealtimeMetrics; alternatives: POI[] } | null> {
+): Promise<{ poi: POI; realtime: RealtimeMetrics; alternatives: POI[]; recommendNote: string } | null> {
   const nearby = await fetchNearbyRestaurants(
     `${near.lng},${near.lat}`,
     cityInfo,
@@ -134,10 +135,12 @@ async function pickMealNearby(
   const pool = nearby.filter((r) => !usedIds.has(r.id));
   const ranked = rankPOIs(pool.length > 0 ? pool : nearby, ctx, near, { limit: 5, minScore: 10, cityName: cityInfo.name });
   if (ranked.length === 0) return null;
+  const totalCandidates = pool.length || nearby.length;
   return {
     poi: ranked[0].poi,
     realtime: ranked[0].realtime,
     alternatives: ranked.slice(1, 4).map((r) => r.poi),
+    recommendNote: buildPoiRecommendNote(ranked[0].poi, ranked[0].realtime, "meal", 1, totalCandidates),
   };
 }
 
@@ -178,7 +181,7 @@ async function buildDayPlan(
     usedRestaurantIds.add(breakfast.poi.id);
     currentMinutes = addVisitOrMeal(
       items, breakfast.poi, breakfast.realtime, "meal", currentMinutes,
-      `评分 ${breakfast.realtime.score} · ${breakfast.poi.rating} 分 · 人均约¥${breakfast.poi.pricePerPerson}`,
+      breakfast.recommendNote,
       breakfast.alternatives,
     );
     lastLocation = breakfast.poi;
@@ -220,7 +223,7 @@ async function buildDayPlan(
         }
         currentMinutes = addVisitOrMeal(
           items, lunch.poi, lunch.realtime, "meal", Math.max(currentMinutes, 12 * 60),
-          `评分 ${lunch.realtime.score} · ${lunch.poi.rating} 分 · 人均约¥${lunch.poi.pricePerPerson}`,
+          lunch.recommendNote,
           lunch.alternatives,
         );
         usedRestaurantIds.add(lunch.poi.id);
@@ -234,7 +237,7 @@ async function buildDayPlan(
 
     currentMinutes = addVisitOrMeal(
       items, attraction, realtime, "visit", currentMinutes,
-      `${attraction.rating} 分 · 综合 ${realtime.score} 分`,
+      buildPoiRecommendNote(attraction, realtime, "visit"),
     );
     lastLocation = attraction;
   }
@@ -248,7 +251,7 @@ async function buildDayPlan(
       );
       addVisitOrMeal(
         items, dinner.poi, dinner.realtime, "meal", currentMinutes,
-        `评分 ${dinner.realtime.score} · ${dinner.poi.rating} 分 · 人均约¥${dinner.poi.pricePerPerson}`,
+        dinner.recommendNote,
         dinner.alternatives,
       );
       lastLocation = dinner.poi;
