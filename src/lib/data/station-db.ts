@@ -27,8 +27,35 @@ export function resolveStation(input: string): RailStation | null {
   return list[0] ?? null;
 }
 
-/** 同城全部铁路站（张家界→张家界+张家界西，苏州→苏州+苏州北…） */
-export function listStationsForCity(input: string): RailStation[] {
+/** 同城全部铁路站，可按偏好排序 */
+export function sortStationsByMode(
+  stations: RailStation[],
+  mode: "auto" | "hsr" | "classic" = "auto",
+): RailStation[] {
+  const list = [...stations];
+  if (mode === "auto") {
+    return list.sort((a, b) => a.hubTier - b.hubTier);
+  }
+  if (mode === "hsr") {
+    return list.sort((a, b) => {
+      const score = (s: RailStation) =>
+        /西$|南$|东$|虹桥/.test(s.name) ? 0 : s.hubTier <= 2 ? 1 : 2;
+      return score(a) - score(b) || a.hubTier - b.hubTier;
+    });
+  }
+  // classic: 普速主站（名称短、无方位后缀）优先
+  return list.sort((a, b) => {
+    const score = (s: RailStation) => {
+      const n = s.name.replace(/站$/, "");
+      if (n.endsWith("西") || n.endsWith("南") || n.endsWith("北") || n.endsWith("东")) return 2;
+      if (s.hubTier >= 3) return 0;
+      return 1;
+    };
+    return score(a) - score(b);
+  });
+}
+
+export function listStationsForCity(input: string, mode: "auto" | "hsr" | "classic" = "auto"): RailStation[] {
   const q = normalize(input);
   if (!q) return [];
 
@@ -48,7 +75,7 @@ export function listStationsForCity(input: string): RailStation[] {
       unique.push(s);
     }
   }
-  return unique;
+  return sortStationsByMode(unique, mode);
 }
 
 /** 12306 / 聚合 API 可识别的站名变体 */

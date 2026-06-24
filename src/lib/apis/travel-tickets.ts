@@ -242,8 +242,8 @@ export async function buildOptimalTravelTickets(
   const routeInfo = await analyzeRoute(fromCity, toCityInfo);
   const { distanceKm } = routeInfo;
 
-  const fromCandidates = listStationsForCity(fromName);
-  const toCandidates = listStationsForCity(toName);
+  const fromCandidates = listStationsForCity(fromName, request.departureStationMode ?? "auto");
+  const toCandidates = listStationsForCity(toName, "auto");
   if (fromCandidates.length === 0) {
     const fb = resolveStation(fromCity.formattedAddress);
     if (fb) fromCandidates.push(fb);

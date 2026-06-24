@@ -1,4 +1,6 @@
 import type { Location, POI } from "./types";
+import type { PlanObjective } from "./engine/geo-cluster";
+import { timeToMinutes } from "./realtime-engine";
 
 /** Haversine 距离（km） */
 export function distance(a: Location, b: Location): number {
@@ -15,34 +17,62 @@ export function distance(a: Location, b: Location): number {
   return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
 
-/** 最近邻 TSP 启发式，优化单日游览顺序 */
-export function optimizeRoute(pois: POI[]): POI[] {
+function edgeCost(from: POI, to: POI, objective: PlanObjective): number {
+  const d = distance(from, to);
+  if (objective === "time") return d * 2 + (to.durationMinutes ?? 0) * 0.01;
+  if (objective === "value") return d + (to.pricePerPerson ?? 0) * 0.08;
+  return d - (to.compositeRating ?? to.rating) * 0.15;
+}
+
+function isOpenAtVisit(poi: POI, visitStartMinutes: number, durationMin: number): boolean {
+  const open = timeToMinutes(poi.openTime);
+  const close = timeToMinutes(poi.closeTime);
+  const end = visitStartMinutes + durationMin;
+  if (close < open) return visitStartMinutes >= open || end <= close + 24 * 60;
+  return visitStartMinutes >= open && end <= close;
+}
+
+/** 最近邻 TSP，可选目标与起点 */
+export function optimizeRouteNearest(
+  pois: POI[],
+  objective: PlanObjective = "experience",
+  start?: POI,
+): POI[] {
   if (pois.length <= 1) return pois;
 
   const remaining = [...pois];
-  const route: POI[] = [remaining.shift()!];
+  const route: POI[] = [];
+
+  if (start && remaining.some((p) => p.id === start.id)) {
+    const idx = remaining.findIndex((p) => p.id === start.id);
+    route.push(remaining.splice(idx, 1)[0]);
+  } else {
+    // 体验优先从最高分开始，省时从中心开始
+    if (objective === "experience") {
+      remaining.sort((a, b) => (b.compositeRating ?? b.rating) - (a.compositeRating ?? a.rating));
+    }
+    route.push(remaining.shift()!);
+  }
 
   while (remaining.length > 0) {
     const current = route[route.length - 1];
-    let nearestIdx = 0;
-    let nearestDist = Infinity;
-
+    let bestIdx = 0;
+    let bestCost = Infinity;
     for (let i = 0; i < remaining.length; i++) {
-      const d = distance(current, remaining[i]);
-      if (d < nearestDist) {
-        nearestDist = d;
-        nearestIdx = i;
+      const c = edgeCost(current, remaining[i], objective);
+      if (c < bestCost) {
+        bestCost = c;
+        bestIdx = i;
       }
     }
-
-    route.push(remaining.splice(nearestIdx, 1)[0]);
+    route.push(remaining.splice(bestIdx, 1)[0]);
   }
 
-  return optimizeRoute2Opt(route);
+  return optimizeRoute2Opt(route, objective);
 }
 
-/** 2-opt 路径改进：在最近邻结果上进一步缩短路程 */
-export function optimizeRoute2Opt(pois: POI[]): POI[] {
+/** 2-opt 路径改进 */
+export function optimizeRoute2Opt(pois: POI[], objective: PlanObjective = "experience"): POI[] {
   if (pois.length <= 3) return pois;
 
   const route = [...pois];
@@ -59,8 +89,8 @@ export function optimizeRoute2Opt(pois: POI[]): POI[] {
         const b = route[i + 1];
         const c = route[j];
         const d = j + 1 < route.length ? route[j + 1] : null;
-        const before = distance(a, b) + (d ? distance(c, d) : 0);
-        const after = distance(a, c) + (d ? distance(b, d) : 0);
+        const before = edgeCost(a, b, objective) + (d ? edgeCost(c, d, objective) : 0);
+        const after = edgeCost(a, c, objective) + (d ? edgeCost(b, d, objective) : 0);
         if (after < before - 0.01) {
           const segment = route.slice(i + 1, j + 1).reverse();
           route.splice(i + 1, j - i, ...segment);
@@ -70,6 +100,54 @@ export function optimizeRoute2Opt(pois: POI[]): POI[] {
     }
   }
   return route;
+}
+
+/** 带营业时间检查的插入启发式排序 */
+export function optimizeRouteWithTimeWindows(
+  pois: POI[],
+  objective: PlanObjective = "experience",
+  startMinutes = 9 * 60,
+): POI[] {
+  if (pois.length <= 1) return pois;
+
+  const ordered = optimizeRouteNearest(pois, objective);
+  const result: POI[] = [];
+  const remaining = [...ordered];
+  let currentMinutes = startMinutes;
+  let last: POI | null = null;
+
+  while (remaining.length > 0) {
+    let bestIdx = -1;
+    let bestScore = Infinity;
+
+    for (let i = 0; i < remaining.length; i++) {
+      const p = remaining[i];
+      const travelMin = last ? Math.max(15, Math.round(distance(last, p) / 25 * 60)) : 0;
+      const visitStart = currentMinutes + travelMin;
+      const openOk = isOpenAtVisit(p, visitStart, p.durationMinutes);
+
+      let score = edgeCost(last ?? p, p, objective);
+      if (!openOk) score += 50;
+      if (score < bestScore) {
+        bestScore = score;
+        bestIdx = i;
+      }
+    }
+
+    if (bestIdx < 0) break;
+    const picked = remaining.splice(bestIdx, 1)[0];
+    const travelMin = last ? Math.max(15, Math.round(distance(last, picked) / 25 * 60)) : 0;
+    currentMinutes += travelMin + picked.durationMinutes;
+    result.push(picked);
+    last = picked;
+  }
+
+  return result.length > 0 ? optimizeRoute2Opt(result, objective) : ordered;
+}
+
+/** 最近邻 TSP 启发式（兼容旧接口） */
+export function optimizeRoute(pois: POI[]): POI[] {
+  return optimizeRouteNearest(pois, "experience");
 }
 
 export function totalRouteDistance(pois: POI[]): number {

@@ -305,3 +305,23 @@ export async function fetchPOIDetail(poiId: string) {
   });
   return data.pois?.[0];
 }
+
+export interface AmapInputTipsResponse extends AmapResponse {
+  tips?: Array<{ name: string; district?: string; adcode?: string; address?: string }>;
+}
+
+/** 城市输入提示 */
+export async function fetchCityInputTips(keywords: string): Promise<Array<{ name: string; district: string }>> {
+  if (!keywords.trim() || keywords.length < 2) return [];
+  const data = await amapGet<AmapInputTipsResponse>("/assistant/inputtips", {
+    keywords: keywords.trim(),
+    datatype: "city",
+  });
+  return (data.tips ?? [])
+    .filter((t) => t.name && t.adcode)
+    .map((t) => ({
+      name: t.name.replace(/市$/, "") === t.name ? t.name : t.name,
+      district: [t.district, t.address].filter(Boolean).join(" · ") || t.name,
+    }))
+    .slice(0, 8);
+}

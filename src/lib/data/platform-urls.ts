@@ -92,6 +92,31 @@ export function amapNavUrl(name: string, lng: number, lat: number): string {
   return `https://uri.amap.com/marker?position=${lng},${lat}&name=${enc(name)}&coordinate=gaode&callnative=1`;
 }
 
+/** 携程酒店移动端列表（手机查价更稳） */
+export function ctripHotelMobileUrl(
+  cityName: string,
+  keyword: string,
+  checkIn: string,
+  checkOut: string,
+  cityId?: number | null,
+): string {
+  const kw = enc(keyword.trim());
+  const city = enc(cityName.replace(/市$/g, ""));
+  if (cityId) {
+    return `https://m.ctrip.com/webapp/hotel/hotellist?city=${cityId}&keyword=${kw}&checkin=${checkIn}&checkout=${checkOut}`;
+  }
+  return `https://m.ctrip.com/webapp/hotel/hotellist?keyword=${enc(city + " " + keyword.trim())}&checkin=${checkIn}&checkout=${checkOut}`;
+}
+
+/** 携程门票移动端 */
+export function ctripTicketMobileUrl(cityName: string, keyword: string, cityId?: number | null): string {
+  const kw = enc(keyword.trim());
+  if (cityId) {
+    return `https://m.ctrip.com/webapp/ticket/list?keyword=${kw}&cid=${cityId}`;
+  }
+  return `https://m.ctrip.com/webapp/vacations/tour/list?keyword=${enc(cityName.replace(/市$/g, "") + " " + keyword.trim())}`;
+}
+
 /** 飞猪酒店搜索 */
 export function fliggyHotelSearchUrl(city: string, keyword: string, checkIn: string): string {
   return `https://s.fliggy.com/hotel?q=${enc(city + " " + keyword.trim())}&checkIn=${checkIn}`;

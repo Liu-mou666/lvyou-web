@@ -4,39 +4,59 @@ import AppTabs, { type AppTab } from "@/components/AppTabs";
 import BudgetSummary from "@/components/BudgetSummary";
 import DestinationRankList from "@/components/DestinationRankList";
 import GenerateProgress from "@/components/GenerateProgress";
+import ItineraryHistoryPanel from "@/components/ItineraryHistoryPanel";
 import ItineraryView from "@/components/ItineraryView";
 import MapView from "@/components/MapView";
 import TransportCompare from "@/components/TransportCompare";
 import TripForm from "@/components/TripForm";
+import PriceAuditPanel from "@/components/PriceAuditPanel";
+import VariantCompare from "@/components/VariantCompare";
 import { useGenerateStream } from "@/hooks/useGenerateStream";
-import type { Itinerary, TripRequest } from "@/lib/types";
+import { useItineraryHistory, type SavedTrip } from "@/hooks/useItineraryHistory";
+import type { DayPlan, Itinerary, PlanObjective, TripRequest } from "@/lib/types";
 import { useMutation } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-function tabDisabled(itinerary: Itinerary | null): Partial<Record<AppTab, boolean>> {
+function tabDisabled(itinerary: Itinerary | null, loading: boolean): Partial<Record<AppTab, boolean>> {
   if (!itinerary) {
-    return { map: true, itinerary: true, rank: true, budget: true };
+    return { map: true, itinerary: true, rank: true, budget: true, compare: true };
   }
+  const hasVisitCoords = itinerary.days.some((d) =>
+    d.items.some((i) => i.kind === "visit" && i.poi?.lat && i.poi?.lng),
+  );
   const hasDays = itinerary.days.length > 0;
   const hasRank = (itinerary.topAttractions?.length ?? 0) > 0;
   const hasBudget =
     itinerary.budgetBreakdown != null ||
     (itinerary.trainRoutes?.length ?? 0) > 0 ||
     itinerary.flightOption != null;
+  const hasVariants = (itinerary.variants?.length ?? 0) > 0;
   return {
-    map: !hasDays,
+    map: !hasVisitCoords && !loading,
     itinerary: !hasDays,
-    rank: !hasRank,
-    budget: !hasBudget,
+    rank: !hasRank && !loading,
+    budget: !hasBudget && !loading,
+    compare: !hasVariants && !loading,
   };
 }
 
 export default function TripPlanner() {
   const { generate, loading, progress, itinerary, error, setItinerary, setError } = useGenerateStream();
+  const { history, save, remove, exportJson } = useItineraryHistory();
   const [activeTab, setActiveTab] = useState<AppTab>("plan");
   const [lastRequest, setLastRequest] = useState<TripRequest | null>(null);
+  const [selectedVariant, setSelectedVariant] = useState<PlanObjective>("value");
+  const [refreshingDay, setRefreshingDay] = useState<number | null>(null);
+  const [reorderingDay, setReorderingDay] = useState<number | null>(null);
+  const savedRef = useRef<string | null>(null);
 
-  const disabledTabs = useMemo(() => tabDisabled(itinerary), [itinerary]);
+  const disabledTabs = useMemo(() => tabDisabled(itinerary, loading), [itinerary, loading]);
+
+  useEffect(() => {
+    if (itinerary?.selectedVariant) {
+      setSelectedVariant(itinerary.selectedVariant);
+    }
+  }, [itinerary?.selectedVariant]);
 
   useEffect(() => {
     if (itinerary?.days.length && !loading) {
@@ -44,40 +64,96 @@ export default function TripPlanner() {
     }
   }, [itinerary?.days.length, loading]);
 
-  const refreshMutation = useMutation({
-    mutationFn: async () => {
-      if (!itinerary || !lastRequest) throw new Error("无可刷新行程");
+  useEffect(() => {
+    if (!itinerary || loading || !lastRequest || progress?.step !== "done") return;
+    const key = itinerary.generatedAt;
+    if (savedRef.current === key) return;
+    savedRef.current = key;
+    save(lastRequest, itinerary);
+  }, [itinerary, loading, lastRequest, progress?.step, save]);
+
+  const refreshDayMutation = useMutation({
+    mutationFn: async (dayIndex: number) => {
+      if (!lastRequest) throw new Error("无可刷新行程");
       const res = await fetch("/api/refresh", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...lastRequest, dayIndex: 0 }),
+        body: JSON.stringify({ ...lastRequest, dayIndex }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "刷新失败");
-      return data;
+      return { dayIndex, dayPlan: data.dayPlan as DayPlan, refreshedAt: data.refreshedAt as string };
     },
+    onMutate: (dayIndex) => setRefreshingDay(dayIndex),
     onSuccess: (data) => {
       if (!itinerary) return;
       setItinerary({
         ...itinerary,
-        days: itinerary.days.map((d, i) => (i === 0 ? data.dayPlan : d)),
+        days: itinerary.days.map((d, i) => (i === data.dayIndex ? data.dayPlan : d)),
         generatedAt: data.refreshedAt,
-        realtimeNote: data.note,
       });
     },
-    onError: (err) => {
-      setError(err instanceof Error ? err.message : "刷新失败");
+    onError: (err) => setError(err instanceof Error ? err.message : "刷新失败"),
+    onSettled: () => setRefreshingDay(null),
+  });
+
+  const reoptimizeMutation = useMutation({
+    mutationFn: async ({ dayIndex, attractionIds }: { dayIndex: number; attractionIds: string[] }) => {
+      if (!lastRequest || !itinerary) throw new Error("无可重算行程");
+      const templateDay = itinerary.days[dayIndex];
+      const res = await fetch("/api/reoptimize-day", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...lastRequest,
+          dayIndex,
+          attractionIds,
+          templateDay,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "重算失败");
+      return { dayIndex, dayPlan: data.dayPlan as DayPlan };
     },
+    onMutate: ({ dayIndex }) => setReorderingDay(dayIndex),
+    onSuccess: (data) => {
+      if (!itinerary) return;
+      setItinerary({
+        ...itinerary,
+        days: itinerary.days.map((d, i) => (i === data.dayIndex ? data.dayPlan : d)),
+      });
+    },
+    onError: (err) => setError(err instanceof Error ? err.message : "重算失败"),
+    onSettled: () => setReorderingDay(null),
   });
 
   async function handleGenerate(request: TripRequest) {
     setLastRequest(request);
+    savedRef.current = null;
     setActiveTab("plan");
     await generate(request);
   }
 
+  function handleSelectVariant(objective: PlanObjective) {
+    if (!itinerary?.variants) return;
+    const v = itinerary.variants.find((x) => x.objective === objective);
+    if (!v) return;
+    setSelectedVariant(objective);
+    setItinerary({
+      ...v.itinerary,
+      variants: itinerary.variants,
+      selectedVariant: objective,
+    });
+  }
+
+  function handleLoadHistory(item: SavedTrip) {
+    setLastRequest(item.request);
+    setItinerary(item.itinerary);
+    setSelectedVariant(item.itinerary.selectedVariant ?? "value");
+    setActiveTab("itinerary");
+  }
+
   const showMobileNav = activeTab !== "plan" || itinerary != null;
-  const refreshing = refreshMutation.isPending;
 
   return (
     <div
@@ -101,14 +177,13 @@ export default function TripPlanner() {
                 )}
               </h1>
             </div>
-            {itinerary && (
+            {itinerary && !loading && (
               <button
                 type="button"
-                onClick={() => refreshMutation.mutate()}
-                disabled={loading || refreshing}
-                className="touch-target shrink-0 rounded-xl border border-warm-300 bg-warm-glow px-3 py-2 text-xs font-medium text-warm-700 disabled:opacity-50"
+                onClick={() => exportJson(itinerary, lastRequest ?? undefined)}
+                className="shrink-0 rounded-lg border border-warm-300 px-3 py-1.5 text-xs font-medium text-warm-700"
               >
-                {refreshing ? "…" : "刷新"}
+                导出 JSON
               </button>
             )}
           </div>
@@ -124,11 +199,20 @@ export default function TripPlanner() {
       <main className="mx-auto max-w-7xl px-3 py-3 sm:px-4 sm:py-6">
         {activeTab === "plan" && (
           <div className="grid gap-4 lg:grid-cols-12 lg:gap-6">
-            <div className="lg:col-span-5 lg:sticky lg:top-[7.5rem] lg:self-start">
+            <div className="lg:col-span-5 lg:sticky lg:top-[7.5rem] lg:self-start space-y-4">
               <TripForm onSubmit={handleGenerate} loading={loading} />
+              <ItineraryHistoryPanel
+                items={history}
+                onLoad={handleLoadHistory}
+                onRemove={remove}
+                onExport={(item) => exportJson(item.itinerary, item.request)}
+              />
             </div>
             <div className="space-y-4 lg:col-span-7">
               {loading && progress && <GenerateProgress progress={progress} />}
+              {loading && itinerary && itinerary.days.some((d) => d.items.length > 0) && (
+                <MapView itinerary={itinerary} />
+              )}
               {error && (
                 <div className="card-warm border-red-200 bg-red-50/80 p-4 text-red-700">
                   <p className="font-medium">生成失败</p>
@@ -141,13 +225,22 @@ export default function TripPlanner() {
                     ✈
                   </div>
                   <p className="font-medium text-warm-text">填写参数后生成行程</p>
-                  <p className="mt-2 text-xs text-warm-muted">生成后可切换地图、行程、榜单与预算</p>
+                  <p className="mt-2 text-xs text-warm-muted">生成后可切换地图、行程、对比、榜单与预算</p>
                 </div>
               )}
               {itinerary && !loading && (
-                <div className="card-warm p-4 text-sm text-warm-muted">
-                  <p className="font-medium text-warm-text">已生成 {itinerary.city} 参考行程</p>
-                  <p className="mt-1">请点顶部或底部 Tab 查看地图、每日安排、必去榜与预算明细。</p>
+                <div className="space-y-4">
+                  <div className="card-warm p-4 text-sm text-warm-muted">
+                    <p className="font-medium text-warm-text">已生成 {itinerary.city} 参考行程</p>
+                    <p className="mt-1">含 3 套方案；行程页可拖拽改序、按日刷新。</p>
+                  </div>
+                  {itinerary.variants && itinerary.variants.length > 0 && (
+                    <VariantCompare
+                      itinerary={itinerary}
+                      selected={selectedVariant}
+                      onSelect={handleSelectVariant}
+                    />
+                  )}
                 </div>
               )}
             </div>
@@ -157,7 +250,28 @@ export default function TripPlanner() {
         {activeTab === "map" && itinerary && <MapView itinerary={itinerary} />}
 
         {activeTab === "itinerary" && itinerary && (
-          <ItineraryView itinerary={itinerary} mode="days-only" />
+          <ItineraryView
+            itinerary={itinerary}
+            mode="days-only"
+            onRefreshDay={(i) => refreshDayMutation.mutate(i)}
+            refreshingDay={refreshingDay}
+            onReorderDay={async (dayIndex, attractionIds) => {
+              await reoptimizeMutation.mutateAsync({ dayIndex, attractionIds });
+            }}
+            reorderingDay={reorderingDay}
+            travelers={lastRequest?.travelers ?? 2}
+          />
+        )}
+
+        {activeTab === "compare" && itinerary && (
+          <div className="space-y-4">
+            <VariantCompare
+              itinerary={itinerary}
+              selected={selectedVariant}
+              onSelect={handleSelectVariant}
+            />
+            {itinerary.budgetBreakdown && <BudgetSummary breakdown={itinerary.budgetBreakdown} />}
+          </div>
         )}
 
         {activeTab === "rank" && itinerary?.topAttractions && (
@@ -166,6 +280,7 @@ export default function TripPlanner() {
 
         {activeTab === "budget" && itinerary && (
           <div className="space-y-4">
+            {itinerary.priceAudit && <PriceAuditPanel audit={itinerary.priceAudit} />}
             {itinerary.budgetBreakdown && <BudgetSummary breakdown={itinerary.budgetBreakdown} />}
             <TransportCompare
               trainRoutes={itinerary.trainRoutes}

@@ -14,6 +14,14 @@ export function cacheSet<T>(key: string, value: T, ttlMs: number): void {
   store.set(key, { value, expires: Date.now() + ttlMs });
 }
 
+/** 常用 TTL */
+export const CACHE_TTL = {
+  poi: 6 * 60 * 60 * 1000,
+  route: 2 * 60 * 60 * 1000,
+  weather: 30 * 60 * 1000,
+  staticMap: 60 * 60 * 1000,
+} as const;
+
 export function cacheKey(parts: string[]): string {
   return parts.join(":");
 }

@@ -25,6 +25,17 @@ export interface TripRequest {
   /** 全程总预算（含去程交通+住宿+餐饮景点，0=不限） */
   totalBudget?: number;
   notes?: string;
+  /** 出发铁路站偏好：自动多站 / 优先高铁 / 优先普速 */
+  departureStationMode?: "auto" | "hsr" | "classic";
+  /** 必去景点名称 */
+  mustVisit?: string[];
+  /** 排除景点/区域 */
+  exclude?: string[];
+  /** 每日最大步行 km */
+  maxWalkKmPerDay?: number;
+  withChildren?: boolean;
+  withElderly?: boolean;
+  accessibility?: boolean;
 }
 
 export interface Location {
@@ -72,6 +83,8 @@ export interface POI extends Location {
   pricePerPerson: number;
   rating: number;
   reviewCount: number;
+  /** 评价数为估算值（非高德真实条数） */
+  reviewCountEstimated?: boolean;
   openTime: string;
   closeTime: string;
   indoor: boolean;
@@ -94,6 +107,8 @@ export interface POI extends Location {
   evidence?: Evidence[];
   /** 高德无票价且名称暗示免费开放 */
   freeAttraction?: boolean;
+  /** 价格可信度 */
+  priceConfidence?: "high" | "medium" | "low" | "none";
 }
 
 export interface WeatherForecast {
@@ -227,6 +242,43 @@ export interface Itinerary {
   budgetBreakdown?: BudgetBreakdown;
   /** 目的地大数据筛选必去榜 */
   topAttractions?: RankedAttraction[];
+  /** 多方案对比（省钱/省时/体验） */
+  variants?: ItineraryVariant[];
+  /** 当前选中方案 objective */
+  selectedVariant?: PlanObjective;
+  /** 全行程价格可信度审计 */
+  priceAudit?: PriceAudit;
+}
+
+export interface PriceAuditItem {
+  poiId: string;
+  poiName: string;
+  type: POIType;
+  day?: number;
+  confidence?: "high" | "medium" | "low" | "none";
+  pricePerPerson: number;
+  checkUrl?: string;
+}
+
+export interface PriceAudit {
+  totalPois: number;
+  high: number;
+  medium: number;
+  low: number;
+  none: number;
+  verifiedPercent: number;
+  needCheck: PriceAuditItem[];
+  summary: string;
+  tips: string[];
+}
+
+export type PlanObjective = "value" | "time" | "experience";
+
+export interface ItineraryVariant {
+  objective: PlanObjective;
+  label: string;
+  description: string;
+  itinerary: Itinerary;
 }
 
 export interface BudgetBreakdown {
@@ -239,6 +291,8 @@ export interface BudgetBreakdown {
   total: number;
   status: "within" | "tight" | "over" | "unset";
   savingsTips: string[];
+  /** 仍超预算时的缺口（正数=还需多少） */
+  budgetGap?: number;
 }
 
 export interface RealtimeContext {
@@ -254,4 +308,6 @@ export interface RealtimeContext {
   maxMealBudget: number;
   totalBudget: number;
   days: number;
+  transportPref: TransportPref;
+  maxWalkKmPerDay: number;
 }

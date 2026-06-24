@@ -50,6 +50,12 @@ export default function BudgetSummary({ breakdown }: BudgetSummaryProps) {
         </div>
       )}
 
+      {breakdown.budgetGap && breakdown.budgetGap > 0 && (
+        <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
+          仍缺约 <strong className="tabular-nums">¥{breakdown.budgetGap}</strong> 才能覆盖当前方案，建议提高总预算或缩短天数。
+        </p>
+      )}
+
       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-2">
         {ROWS.map(({ key, label }) => (
           <div key={key} className="flex items-center justify-between rounded-xl bg-warm-100 px-3 py-2.5 text-sm">

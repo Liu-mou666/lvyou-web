@@ -1,5 +1,6 @@
-import type { Location, POI, RealtimeContext, RealtimeMetrics } from "./types";
+import type { Location, POI, RealtimeContext, RealtimeMetrics, TransportPref } from "./types";
 import { authorityBonus } from "./data/authority-lists";
+import { crowdPenalty, estimateCrowdLevel } from "./engine/crowd-model";
 import { distance } from "./optimizer";
 
 export function timeToMinutes(time: string): number {
@@ -26,7 +27,7 @@ function valueRank(score: number): RealtimeMetrics["valueRank"] {
   return "low";
 }
 
-/** 基于高德评分 + 权威名录 + 预算约束的综合打分（不模拟假人流） */
+/** 基于高德评分 + 权威名录 + 预算约束的综合打分 */
 export function buildRealtimeMetrics(
   poi: POI,
   ctx: RealtimeContext,
@@ -60,9 +61,32 @@ export function buildRealtimeMetrics(
     if (rating >= 4.5) reasons.push("高评分");
   }
 
+  // 步行距离偏好（transportPref=walk 惩罚远距离）
+  if (ctx.transportPref === "walk" && distKm > 1.5) {
+    score *= Math.max(0.4, 1 - (distKm - 1.5) * 0.25);
+    reasons.push("距上一站较远，步行偏多");
+  }
+  if (ctx.transportPref === "taxi" && distKm > 3) {
+    score += 8;
+    reasons.push("适合打车衔接");
+  }
+
+  // 人流模型
+  const crowd = estimateCrowdLevel(poi, ctx.date, ctx.currentTime, ctx.avoidCrowd);
+  const crowdPen = crowdPenalty(poi, ctx.date, ctx.currentTime, ctx.avoidCrowd);
+  if (crowdPen > 0) {
+    score -= crowdPen;
+    reasons.push(`预计${crowdLabel(crowd.level)}（${crowd.reason}）`);
+  }
+
   if (poi.authorityTag) reasons.push(`文旅部 ${poi.authorityTag}`);
-  if (poi.reviewCount >= 5000) reasons.push(`评价热度 ${formatReviewCount(poi.reviewCount)}`);
-  else if (poi.reviewCount >= 500) reasons.push(`${poi.reviewCount} 条评价`);
+  if (poi.reviewCountEstimated) {
+    reasons.push(`热度指数 ${formatReviewCount(poi.reviewCount)}（估算）`);
+  } else if (poi.reviewCount >= 5000) {
+    reasons.push(`评价热度 ${formatReviewCount(poi.reviewCount)}`);
+  } else if (poi.reviewCount >= 500) {
+    reasons.push(`${poi.reviewCount} 条评价`);
+  }
   reasons.push(`高德 ${poi.rating} 分`);
   if (poi.pricePerPerson > 0) reasons.push(`参考 ¥${poi.pricePerPerson}/人`);
   if (poi.priceNote) reasons.push(poi.priceNote);
@@ -87,14 +111,16 @@ export function buildRealtimeMetrics(
   }
 
   return {
+    crowdLevel: crowd.level,
+    waitMinutes: crowd.waitMinutes,
     popularity: Math.min(100, Math.round(rating * 20)),
     isOpen,
-    score: Math.round(Math.min(100, score)),
-    scoreReasons: [...new Set(reasons)].slice(0, 6),
+    score: Math.round(Math.max(0, Math.min(100, score))),
+    scoreReasons: [...new Set(reasons)].slice(0, 7),
     dataTimestamp: new Date().toISOString(),
     dataSources: ["高德地图", poi.authorityTag ? "文旅部5A名录" : ""].filter(Boolean),
     valueRank: valueRank(valueScore),
-    crowdAvailable: false,
+    crowdAvailable: true,
   };
 }
 

@@ -3,12 +3,16 @@
  */
 import { getDianpingCityId } from "./city-resolver";
 import type { CityInfo } from "./city-resolver";
-import type { POI, PlatformLink, DealInfo } from "../types";
+import type { POI, PlatformLink } from "../types";
+import { enrichPriceFromSources } from "./price-enricher";
+import { buildPriceCheckDeals } from "../engine/price-deals";
 import {
   amapNavUrl,
   amapPlaceUrl,
   ctripActivitySearchUrl,
+  ctripHotelMobileUrl,
   ctripHotelSearchUrl,
+  ctripTicketMobileUrl,
   ctripTicketSearchUrl,
   ctripUnifiedSearchUrl,
   dianpingSearchUrl,
@@ -91,6 +95,12 @@ export function buildPOILinks(
           url: ctripTicketSearchUrl(city, shopName, ctripCityId),
         },
         {
+          platform: "ctrip",
+          label: "携程手机",
+          action: "手机查门票",
+          url: ctripTicketMobileUrl(city, shopName, ctripCityId),
+        },
+        {
           platform: "dianping",
           label: "大众点评",
           action: "查看景点",
@@ -107,6 +117,12 @@ export function buildPOILinks(
         label: "携程",
         action: `查${checkIn}房价`,
         url: ctripHotelSearchUrl(city, shopName, checkIn, checkOut, ctripCityId),
+      },
+      {
+        platform: "ctrip",
+        label: "携程手机",
+        action: `手机查${checkIn}价`,
+        url: ctripHotelMobileUrl(city, shopName, checkIn, checkOut, ctripCityId),
       },
       {
         platform: "ctrip",
@@ -132,8 +148,8 @@ export function buildPOILinks(
   return links;
 }
 
-export function buildVerifiedDeals(_poi: POI, _links: PlatformLink[]): DealInfo[] {
-  return [];
+export function buildVerifiedDeals(poi: POI, links: PlatformLink[]) {
+  return buildPriceCheckDeals(poi, links);
 }
 
 export function calcValueScore(poi: POI): number {
@@ -146,35 +162,43 @@ export function calcValueScore(poi: POI): number {
 export async function enrichPOIVerified(
   poi: POI,
   cityInfo: CityInfo,
-  opts?: { checkIn?: string },
+  opts?: { checkIn?: string; travelers?: number },
 ): Promise<POI> {
-  const links = buildPOILinks(poi, cityInfo, opts);
-  const deals = buildVerifiedDeals(poi, links);
+  const travelers = opts?.travelers ?? 2;
+  let enriched = await enrichPriceFromSources(poi, travelers, cityInfo.name);
+  const links = buildPOILinks(enriched, cityInfo, opts);
+  const deals = buildVerifiedDeals(enriched, links);
   const checkIn = opts?.checkIn;
 
-  let priceNote: string | undefined;
-  if (poi.type === "hotel") {
-    priceNote = checkIn
-      ? `点击携程链接搜「${poi.name}」查看 ${checkIn} 当日房价`
-      : "房价以携程/飞猪当日实价为准";
-  } else if (poi.type === "restaurant" || poi.type === "cafe") {
-    priceNote =
-      poi.pricePerPerson > 0
-        ? `高德人均约 ¥${poi.pricePerPerson}，以点评/美团菜单为准`
-        : "价格以点评/美团当日为准";
-  } else if (poi.type === "attraction") {
-    if (poi.pricePerPerson === 0) {
-      priceNote = poi.freeAttraction ? "免费开放（高德未收录门票）" : "高德未收录票价，以窗口/携程为准";
-    } else {
-      priceNote = `高德门票参考 ¥${poi.pricePerPerson}/人，以携程/窗口当日为准`;
+  let priceNote = enriched.priceNote;
+  if (!priceNote) {
+    if (enriched.type === "hotel") {
+      priceNote = checkIn
+        ? `点「携程查当晚房价」搜 ${checkIn} 实价`
+        : "房价以携程/飞猪当日为准";
+    } else if (enriched.type === "restaurant" || enriched.type === "cafe") {
+      priceNote =
+        enriched.pricePerPerson > 0
+          ? `高德人均约 ¥${enriched.pricePerPerson}，点评/美团看菜单`
+          : "点下方一键查菜单价";
+    } else if (enriched.type === "attraction") {
+      if (enriched.pricePerPerson === 0 && enriched.freeAttraction) {
+        priceNote = "免费开放（高德未收录门票）";
+      } else if (enriched.pricePerPerson > 0) {
+        priceNote = `高德门票 ¥${enriched.pricePerPerson}/人，携程可查当日票`;
+      } else {
+        priceNote = "点「携程查门票」看当日售价";
+      }
     }
   }
 
   return {
-    ...poi,
+    ...enriched,
     links,
     deals,
-    valueScore: calcValueScore(poi),
+    valueScore: calcValueScore(enriched),
     priceNote,
+    priceConfidence:
+      enriched.priceConfidence ?? (enriched.pricePerPerson > 0 ? "high" : deals.length > 0 ? "medium" : "none"),
   };
 }

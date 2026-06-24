@@ -1,6 +1,5 @@
 import { generateItineraryWithProgress } from "@/lib/itinerary-generator";
-import { tripRequestSchema } from "@/lib/validation/trip-schema";
-import type { TripRequest } from "@/lib/types";
+import { buildTripRequest, tripRequestSchema } from "@/lib/validation/trip-schema";
 import type { GenerateStreamEvent } from "@/lib/types/stream";
 
 export const runtime = "nodejs";
@@ -27,18 +26,7 @@ export async function POST(request: Request) {
           return;
         }
 
-        const trip: TripRequest = {
-          ...parsed.data,
-          departureCity: parsed.data.departureCity?.trim(),
-          travelers: parsed.data.travelers ?? 2,
-          priority: parsed.data.priority ?? "value",
-          transportPref: parsed.data.transportPref ?? "mixed",
-          mealPref: parsed.data.mealPref ?? "local",
-          avoidCrowd: parsed.data.avoidCrowd ?? false,
-          maxMealBudget: parsed.data.maxMealBudget ?? 0,
-          totalBudget: parsed.data.totalBudget ?? 0,
-          notes: parsed.data.notes?.trim() || undefined,
-        };
+        const trip = buildTripRequest(parsed.data);
 
         await generateItineraryWithProgress(trip, send);
       } catch (err) {

@@ -1,5 +1,7 @@
 "use client";
 
+import DayVisitDragList from "@/components/DayVisitDragList";
+import PriceCheckBar from "@/components/PriceCheckBar";
 import EvidencePanel from "@/components/EvidencePanel";
 import BudgetSummary from "@/components/BudgetSummary";
 import TransportCompare from "@/components/TransportCompare";
@@ -14,6 +16,11 @@ interface ItineraryViewProps {
   itinerary: Itinerary;
   /** full：含预算/交通/榜单；days-only：仅摘要与每日行程 */
   mode?: "full" | "days-only";
+  onRefreshDay?: (dayIndex: number) => void;
+  refreshingDay?: number | null;
+  onReorderDay?: (dayIndex: number, attractionIds: string[]) => Promise<void>;
+  reorderingDay?: number | null;
+  travelers?: number;
 }
 
 const PLATFORM_COLORS: Record<string, string> = {
@@ -89,7 +96,7 @@ function POIPhotos({ poi }: { poi: POI }) {
   );
 }
 
-function TimelineEntry({ item }: { item: TimelineItem }) {
+function TimelineEntry({ item, travelers = 2 }: { item: TimelineItem; travelers?: number }) {
   if (item.kind === "transport" && item.transport) {
     const t = item.transport;
     return (
@@ -137,11 +144,7 @@ function TimelineEntry({ item }: { item: TimelineItem }) {
         {poi.priceNote && (
           <p className="mt-2 text-[11px] leading-relaxed text-amber-800">{poi.priceNote}</p>
         )}
-        {poi.cost > 0 ? (
-          <p className="mt-2 text-sm font-medium tabular-nums text-warm-text">高德参考 ¥{poi.cost}（2人）</p>
-        ) : poi.freeAttraction || (poi.type === "attraction" && poi.pricePerPerson === 0) ? (
-          <p className="mt-2 text-sm font-medium text-emerald-700">免费开放 / 未收录门票</p>
-        ) : null}
+        <PriceCheckBar poi={poi} travelers={travelers} />
         {item.note && (
           <div className="mt-2 rounded-lg bg-warm-50 px-2.5 py-2">
             <p className="text-[11px] font-semibold text-warm-700">推荐理由</p>
@@ -172,31 +175,69 @@ function TimelineEntry({ item }: { item: TimelineItem }) {
           </details>
         )}
         {item.evidence && item.evidence.length > 0 && <div className="mt-2"><EvidencePanel evidence={item.evidence} compact /></div>}
-        <PlatformButtons item={item} />
       </div>
     </article>
   );
 }
 
-function DayContent({ day, showHeader = true }: { day: Itinerary["days"][0]; showHeader?: boolean }) {
+function DayContent({
+  day,
+  showHeader = true,
+  dayIndex,
+  onRefreshDay,
+  refreshing,
+  onReorderDay,
+  reordering,
+  travelers = 2,
+}: {
+  day: Itinerary["days"][0];
+  showHeader?: boolean;
+  dayIndex?: number;
+  onRefreshDay?: (dayIndex: number) => void;
+  refreshing?: boolean;
+  onReorderDay?: (dayIndex: number, ids: string[]) => Promise<void>;
+  reordering?: boolean;
+  travelers?: number;
+}) {
+  const visits = day.items.filter((i) => i.kind === "visit" && i.poi).map((i) => i.poi!);
+
   return (
     <>
       {showHeader && (
-        <div className="mb-3 flex items-center justify-between border-b border-warm-200 pb-3">
+        <div className="mb-3 flex items-center justify-between border-b border-warm-200 pb-3 gap-2">
           <div className="min-w-0">
             <h3 className="text-base font-semibold text-warm-text sm:text-lg">
               第 {day.day} 天 <span className="text-sm text-warm-muted">{day.date}</span>
             </h3>
             <p className="mt-0.5 text-xs text-warm-muted sm:text-sm">{day.summary}</p>
           </div>
-          <div className="flex shrink-0 items-center gap-1 rounded-xl bg-warm-100 px-2.5 py-1.5 text-xs sm:text-sm">
-            {weatherIcon(day.weather.condition)}
-            <span className="tabular-nums">{day.weather.tempLow}°~{day.weather.tempHigh}°</span>
+          <div className="flex shrink-0 items-center gap-2">
+            {onRefreshDay != null && dayIndex != null && (
+              <button
+                type="button"
+                disabled={refreshing}
+                onClick={() => onRefreshDay(dayIndex)}
+                className="rounded-lg border border-warm-300 bg-white px-2.5 py-1.5 text-[11px] font-medium text-warm-700 disabled:opacity-50"
+              >
+                {refreshing ? "刷新中…" : "刷新本日"}
+              </button>
+            )}
+            <div className="flex items-center gap-1 rounded-xl bg-warm-100 px-2.5 py-1.5 text-xs sm:text-sm">
+              {weatherIcon(day.weather.condition)}
+              <span className="tabular-nums">{day.weather.tempLow}°~{day.weather.tempHigh}°</span>
+            </div>
           </div>
         </div>
       )}
+      {onReorderDay != null && dayIndex != null && visits.length >= 2 && (
+        <DayVisitDragList
+          visits={visits}
+          disabled={reordering}
+          onReorder={async (ids) => onReorderDay(dayIndex, ids)}
+        />
+      )}
       {day.items.map((item, idx) => (
-        <TimelineEntry key={`${day.day}-${idx}-${item.poi?.id ?? item.transport?.mode}`} item={item} />
+        <TimelineEntry key={`${day.day}-${idx}-${item.poi?.id ?? item.transport?.mode}`} item={item} travelers={travelers} />
       ))}
       <div className="flex gap-3 border-t border-warm-200 pt-3 text-xs text-warm-muted">
         <span>路程 {day.totalDistance}km</span>
@@ -217,13 +258,22 @@ function DayContent({ day, showHeader = true }: { day: Itinerary["days"][0]; sho
             </p>
           )}
           <POILinks poi={day.hotel} />
+          <PriceCheckBar poi={day.hotel} travelers={travelers} />
         </div>
       )}
     </>
   );
 }
 
-export default function ItineraryView({ itinerary, mode = "full" }: ItineraryViewProps) {
+export default function ItineraryView({
+  itinerary,
+  mode = "full",
+  onRefreshDay,
+  refreshingDay,
+  onReorderDay,
+  reorderingDay,
+  travelers = 2,
+}: ItineraryViewProps) {
   const [activeDay, setActiveDay] = useState(0);
   const visitCount = itinerary.days.reduce((n, d) => n + d.items.filter((i) => i.kind === "visit").length, 0);
 
@@ -285,15 +335,31 @@ export default function ItineraryView({ itinerary, mode = "full" }: ItineraryVie
           ))}
         </div>
         <div className="card-warm p-3">
-          <DayContent day={itinerary.days[activeDay]} />
+          <DayContent
+            day={itinerary.days[activeDay]}
+            dayIndex={activeDay}
+            onRefreshDay={onRefreshDay}
+            refreshing={refreshingDay === activeDay}
+            onReorderDay={onReorderDay}
+            reordering={reorderingDay === activeDay}
+            travelers={travelers}
+          />
         </div>
       </div>
 
       {/* 桌面：全部展开 */}
       <div className="hidden space-y-4 sm:block">
-        {itinerary.days.map((day) => (
+        {itinerary.days.map((day, i) => (
           <section key={day.day} className="card-warm p-5">
-            <DayContent day={day} />
+            <DayContent
+              day={day}
+              dayIndex={i}
+              onRefreshDay={onRefreshDay}
+              refreshing={refreshingDay === i}
+              onReorderDay={onReorderDay}
+              reordering={reorderingDay === i}
+              travelers={travelers}
+            />
           </section>
         ))}
       </div>

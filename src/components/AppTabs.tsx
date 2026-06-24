@@ -1,11 +1,12 @@
 "use client";
 
-export type AppTab = "plan" | "map" | "itinerary" | "rank" | "budget";
+export type AppTab = "plan" | "map" | "itinerary" | "rank" | "budget" | "compare";
 
 const TABS: { id: AppTab; label: string; icon: string }[] = [
   { id: "plan", label: "规划", icon: "📝" },
   { id: "map", label: "地图", icon: "🗺️" },
   { id: "itinerary", label: "行程", icon: "📅" },
+  { id: "compare", label: "对比", icon: "⚖️" },
   { id: "rank", label: "榜单", icon: "🏆" },
   { id: "budget", label: "预算", icon: "💰" },
 ];

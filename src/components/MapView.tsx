@@ -7,15 +7,17 @@ interface MapPoint {
   poi: POI;
   day: number;
   time: string;
+  order: number;
 }
 
 function extractPoints(itinerary: Itinerary, dayFilter: number | "all"): MapPoint[] {
   const points: MapPoint[] = [];
   itinerary.days.forEach((day) => {
     if (dayFilter !== "all" && day.day !== dayFilter) return;
+    let order = 0;
     day.items.forEach((item) => {
       if (item.kind === "visit" && item.poi && item.poi.lat && item.poi.lng) {
-        points.push({ poi: item.poi, day: day.day, time: item.startTime });
+        points.push({ poi: item.poi, day: day.day, time: item.startTime, order: order++ });
       }
     });
   });
@@ -30,6 +32,16 @@ function buildAmapUri(points: MapPoint[]): string | null {
   return `https://uri.amap.com/marker?markers=${markers}&src=lvyou&callnative=0`;
 }
 
+function buildStaticMapUrl(points: MapPoint[]): string | null {
+  if (points.length === 0) return null;
+  const mid = points[Math.floor(points.length / 2)];
+  const markers = points
+    .slice(0, 10)
+    .map((p, i) => `mid,0xE85D04,${i + 1}:${p.poi.lng},${p.poi.lat}`)
+    .join("|");
+  return `/api/map-static?zoom=12&markers=${encodeURIComponent(markers)}`;
+}
+
 interface MapViewProps {
   itinerary: Itinerary;
 }
@@ -39,6 +51,7 @@ export default function MapView({ itinerary }: MapViewProps) {
 
   const points = useMemo(() => extractPoints(itinerary, dayFilter), [itinerary, dayFilter]);
   const mapUri = useMemo(() => buildAmapUri(points), [points]);
+  const staticMapUrl = useMemo(() => buildStaticMapUrl(points), [points]);
 
   if (itinerary.days.length === 0) {
     return (
@@ -55,7 +68,7 @@ export default function MapView({ itinerary }: MapViewProps) {
           <div>
             <h3 className="text-base font-semibold text-warm-text">行程地图</h3>
             <p className="mt-0.5 text-xs text-warm-muted">
-              {points.length} 个景点 · 点击可在高德查看路线
+              {points.length} 个景点 · 内嵌静态图 + 高德导航
             </p>
           </div>
           {mapUri && (
@@ -70,7 +83,19 @@ export default function MapView({ itinerary }: MapViewProps) {
           )}
         </div>
 
-        <div className="snap-scroll-x mt-3 -mx-1 px-1">
+        {staticMapUrl && (
+          <div className="mt-3 overflow-hidden rounded-xl border border-warm-200 bg-warm-100">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={staticMapUrl}
+              alt="行程景点分布"
+              className="h-48 w-full object-cover sm:h-56"
+              loading="lazy"
+            />
+          </div>
+        )}
+
+        <div className="snap-scroll-x mt-3 -mx-1 flex gap-2 px-1">
           <button
             type="button"
             onClick={() => setDayFilter("all")}
@@ -104,6 +129,9 @@ export default function MapView({ itinerary }: MapViewProps) {
             const photo = pt.poi.photoUrls?.[0] ?? pt.poi.photoUrl;
             return (
               <li key={`${pt.poi.id}-${i}`} className="card-warm flex gap-3 p-3">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-warm-500 text-sm font-bold text-white">
+                  {pt.order + 1}
+                </span>
                 {photo ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img

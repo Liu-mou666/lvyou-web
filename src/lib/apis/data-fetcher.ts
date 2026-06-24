@@ -13,7 +13,8 @@ import { rankAttractions, type AttractionRankContext } from "../engine/poi-ranke
 import scenicList from "@/data/scenic-5a.json";
 import { fetchPOIDetail } from "./amap";
 import pLimit from "p-limit";
-import { cacheGet, cacheKey, cacheSet } from "../cache/memory";
+import { cacheKey, CACHE_TTL } from "../cache/memory";
+import { storeGetSync, storeSetSync } from "../cache/store";
 
 const STYLE_KEYWORDS: Record<TravelStyle, string[]> = {
   culture: ["5A景区", "博物馆", "名胜古迹"],
@@ -164,6 +165,7 @@ function amapToPOI(
   cityName: string,
   mealTime?: MealTime,
   budget?: BudgetLevel,
+  travelers = 2,
 ): POI | null {
   if (!raw.location || !raw.name) return null;
   const { lat, lng } = parseLocation(raw.location);
@@ -204,6 +206,11 @@ function amapToPOI(
   const compositeRating = Math.min(5, rating + (authority ? 0.15 : 0));
   const photoUrls = (raw.photos ?? []).map((p) => p.url).filter(Boolean).slice(0, 4);
 
+  let priceConfidence: POI["priceConfidence"] = "none";
+  if (costRaw > 0) priceConfidence = "high";
+  else if (type === "attraction" && likelyFree) priceConfidence = "medium";
+  else if (type !== "attraction") priceConfidence = "low";
+
   return {
     id: raw.id,
     name: raw.name.trim(),
@@ -212,12 +219,14 @@ function amapToPOI(
     lat,
     lng,
     durationMinutes: estimateDuration(type, raw.type, raw.name),
-    cost: type === "hotel" ? Math.round(pricePerPerson) : pricePerPerson > 0 ? Math.round(pricePerPerson * 2) : 0,
+    cost: type === "hotel" ? Math.round(pricePerPerson) : pricePerPerson > 0 ? Math.round(pricePerPerson * travelers) : 0,
     pricePerPerson,
     freeAttraction: likelyFree,
     rating: Math.min(5, rating || 4.0),
     compositeRating: Math.round(compositeRating * 10) / 10,
     reviewCount: Math.round((rating || 4) * 10000),
+    reviewCountEstimated: true,
+    priceConfidence,
     openTime: open,
     closeTime: close,
     indoor: isIndoor(raw.type, raw.name),
@@ -296,6 +305,29 @@ export async function fetchSpecialPOIs(cityInfo: CityInfo, keywords: string[]): 
   return verified;
 }
 
+/** 按必去名称搜索并匹配 POI */
+export async function fetchMustVisitPOIs(
+  cityInfo: CityInfo,
+  names: string[],
+  travelers = 2,
+): Promise<POI[]> {
+  const out: POI[] = [];
+  for (const name of names) {
+    const pois = await searchPOI({ keywords: `${cityInfo.name} ${name}`, city: cityInfo.name, offset: 8 });
+    let best: POI | null = null;
+    for (const p of pois) {
+      const mapped = amapToPOI(p, "attraction", "mixed", cityInfo.name, undefined, undefined, travelers);
+      if (!mapped) continue;
+      if (mapped.name.includes(name) || name.includes(mapped.name.replace(/景区|风景区/g, ""))) {
+        best = mapped;
+        break;
+      }
+    }
+    if (best) out.push(await enrichPOIVerified(await enrichPhotos(best), cityInfo));
+  }
+  return dedupePOIs(out);
+}
+
 function get5aSearchTerms(cityName: string): string[] {
   const city = cityName.replace(/市|区|县$/g, "");
   const terms: string[] = [];
@@ -332,6 +364,7 @@ export async function fetchRealAttractions(
     priority?: AttractionRankContext["priority"];
     budget?: BudgetLevel;
     totalBudget?: number;
+    travelers?: number;
   },
 ): Promise<AttractionFetchResult> {
   const cacheId = cacheKey([
@@ -343,7 +376,7 @@ export async function fetchRealAttractions(
     opts?.budget ?? "moderate",
     String(opts?.totalBudget ?? 0),
   ]);
-  const cached = cacheGet<AttractionFetchResult>(cacheId);
+  const cached = storeGetSync<AttractionFetchResult>(cacheId);
   if (cached) return cached;
 
   const keywords = [...STYLE_KEYWORDS[style], ...get5aSearchTerms(cityInfo.name)];
@@ -404,7 +437,7 @@ export async function fetchRealAttractions(
     candidates.map((poi) =>
       enrichLimit(async () => {
         const withPhoto = await enrichPhotos(poi);
-        return enrichPOIVerified(withPhoto, cityInfo);
+        return enrichPOIVerified(withPhoto, cityInfo, { travelers: opts?.travelers ?? 2 });
       }),
     ),
   );
@@ -415,7 +448,7 @@ export async function fetchRealAttractions(
   });
 
   const result = { pool: verified.slice(0, fetchCount), topRanked: topWithLinks };
-  cacheSet(cacheId, result, 6 * 60 * 60 * 1000);
+  storeSetSync(cacheId, result, CACHE_TTL.poi);
   return result;
 }
 

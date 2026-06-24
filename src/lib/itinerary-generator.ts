@@ -4,20 +4,25 @@ import {
   fetchRealWeatherForecast,
   fetchHotelsNearLocation,
   fetchSpecialPOIs,
-  parseNotesKeywords,
+  fetchMustVisitPOIs,
   resolveCityInfo,
 } from "./apis/data-fetcher";
 import { buildOptimalTravelTickets } from "./apis/travel-tickets";
 import { buildPoiRecommendNote } from "./engine/recommend-text";
+import { parsePlanningConstraints, filterExcluded, filterAccessibility } from "./engine/constraint-parser";
+import { clusterDistributeAttractions } from "./engine/geo-cluster";
+import { auditItineraryPrices } from "./engine/price-audit";
 import type { CityInfo } from "./apis/city-resolver";
-import { calcOptimizationScore, optimizeRoute, totalRouteDistance } from "./optimizer";
+import { calcOptimizationScore, optimizeRouteWithTimeWindows, totalRouteDistance } from "./optimizer";
 import { planRealRoute } from "./apis/route-planner";
 import { minutesToTime, rankPOIs } from "./realtime-engine";
 import type {
   BudgetLevel,
   DayPlan,
   Itinerary,
+  ItineraryVariant,
   MealTime,
+  PlanObjective,
   POI,
   RealtimeContext,
   RealtimeMetrics,
@@ -27,6 +32,7 @@ import type {
   WeatherForecast,
 } from "./types";
 import { applyBudgetToItinerary, inferBudgetLevelFromTotal } from "./engine/budget-planner";
+import { VARIANT_META, rebuildDayVisits } from "./engine/day-variant";
 import { weatherLabel } from "./weather";
 import type { GenerateStreamEvent } from "./types/stream";
 
@@ -41,6 +47,14 @@ const BUDGET_MEAL_CAP: Record<BudgetLevel, number> = {
   moderate: 150,
   luxury: 0,
 };
+
+function effectivePace(request: TripRequest): TravelPace {
+  if (request.withChildren || request.withElderly) {
+    if (request.pace === "intense") return "normal";
+    if (request.pace === "normal") return "relaxed";
+  }
+  return request.pace;
+}
 
 function makeCtx(
   request: TripRequest,
@@ -62,6 +76,8 @@ function makeCtx(
     maxMealBudget: mealCap,
     totalBudget: request.totalBudget ?? 0,
     days: request.days,
+    transportPref: request.transportPref ?? "mixed",
+    maxWalkKmPerDay: request.maxWalkKmPerDay ?? 8,
   };
 }
 
@@ -89,9 +105,14 @@ async function addTransport(
   city: string,
   travelers: number,
   rainy: boolean,
-): Promise<number> {
-  const leg = await planRealRoute(from, to, city, travelers, rainy);
+  transportPref: TripRequest["transportPref"],
+  maxWalkKm: number,
+  walkKmToday: number,
+): Promise<{ endMinutes: number; walkKmToday: number }> {
+  const pref = walkKmToday >= maxWalkKm ? "taxi" : transportPref ?? "mixed";
+  const leg = await planRealRoute(from, to, city, travelers, rainy, pref, maxWalkKm);
   const endMinutes = startMinutes + leg.durationMinutes;
+  const newWalk = leg.mode === "walk" ? walkKmToday + leg.distanceKm : walkKmToday;
   items.push({
     kind: "transport",
     startTime: minutesToTime(startMinutes),
@@ -99,7 +120,7 @@ async function addTransport(
     transport: leg,
     note: leg.reason,
   });
-  return endMinutes;
+  return { endMinutes, walkKmToday: newWalk };
 }
 
 function addVisitOrMeal(
@@ -160,8 +181,12 @@ async function buildDayPlan(
   let currentMinutes = 8 * 60;
   let lastLocation: POI | null = null;
 
-  // 景点不因雨天被过滤掉 — 直接路线优化，雨天仅影响排序提示
-  const dayAttractions = optimizeRoute([...attractions]);
+  const transportPref = request.transportPref ?? "mixed";
+  const maxWalkKm = request.maxWalkKmPerDay ?? 8;
+  let walkKmToday = 0;
+
+  const objective: PlanObjective = objectiveFromPriority(request.priority);
+  const dayAttractions = optimizeRouteWithTimeWindows([...attractions], objective);
   const anchor = dayAttractions[0] ?? attractions[0];
   if (!anchor) {
     return {
@@ -191,7 +216,11 @@ async function buildDayPlan(
   const daySpecial = specialPOIs.filter((_, i) => i === dayIndex || (dayIndex === 0 && specialPOIs.length === 1));
   for (const special of daySpecial) {
     if (lastLocation) {
-      currentMinutes = await addTransport(items, lastLocation, special, currentMinutes, cityInfo.name, travelers, rainy);
+      const tr = await addTransport(
+        items, lastLocation, special, currentMinutes, cityInfo.name, travelers, rainy, transportPref, maxWalkKm, walkKmToday,
+      );
+      currentMinutes = tr.endMinutes;
+      walkKmToday = tr.walkKmToday;
     }
     const rt = defaultMetrics(special, cityInfo.name);
     rt.scoreReasons = ["您的特殊需求", `高德 ${special.rating} 分`];
@@ -217,9 +246,11 @@ async function buildDayPlan(
       const lunch = await pickMealNearby("lunch", lunchNear, cityInfo, lunchCtx, request, usedRestaurantIds);
       if (lunch) {
         if (lastLocation) {
-          currentMinutes = await addTransport(
-            items, lastLocation, lunch.poi, Math.max(currentMinutes, 11 * 60 + 30), cityInfo.name, travelers, rainy,
+          const tr = await addTransport(
+            items, lastLocation, lunch.poi, Math.max(currentMinutes, 11 * 60 + 30), cityInfo.name, travelers, rainy, transportPref, maxWalkKm, walkKmToday,
           );
+          currentMinutes = tr.endMinutes;
+          walkKmToday = tr.walkKmToday;
         }
         currentMinutes = addVisitOrMeal(
           items, lunch.poi, lunch.realtime, "meal", Math.max(currentMinutes, 12 * 60),
@@ -232,7 +263,11 @@ async function buildDayPlan(
     }
 
     if (lastLocation) {
-      currentMinutes = await addTransport(items, lastLocation, attraction, currentMinutes, cityInfo.name, travelers, rainy);
+      const tr = await addTransport(
+        items, lastLocation, attraction, currentMinutes, cityInfo.name, travelers, rainy, transportPref, maxWalkKm, walkKmToday,
+      );
+      currentMinutes = tr.endMinutes;
+      walkKmToday = tr.walkKmToday;
     }
 
     currentMinutes = addVisitOrMeal(
@@ -246,9 +281,10 @@ async function buildDayPlan(
     const dinnerCtx = makeCtx(request, date, weather, "18:30");
     const dinner = await pickMealNearby("dinner", lastLocation, cityInfo, dinnerCtx, request, usedRestaurantIds);
     if (dinner) {
-      currentMinutes = await addTransport(
-        items, lastLocation, dinner.poi, Math.max(currentMinutes, 18 * 60 + 30), cityInfo.name, travelers, rainy,
+      const tr = await addTransport(
+        items, lastLocation, dinner.poi, Math.max(currentMinutes, 18 * 60 + 30), cityInfo.name, travelers, rainy, transportPref, maxWalkKm, walkKmToday,
       );
+      currentMinutes = tr.endMinutes;
       addVisitOrMeal(
         items, dinner.poi, dinner.realtime, "meal", currentMinutes,
         dinner.recommendNote,
@@ -293,32 +329,105 @@ async function buildDayPlan(
   };
 }
 
-/** 将景点池分配到各天：全程不重复，优先高分顺序 */
-function distributeAttractions(pool: POI[], days: number, perDay: number): POI[][] {
-  const used = new Set<string>();
-  const unique = pool.filter((p) => {
-    const key = p.id || p.name;
-    if (used.has(key)) return false;
-    used.add(key);
-    return true;
-  });
-
-  const result: POI[][] = [];
-  let idx = 0;
-  for (let d = 0; d < days; d++) {
-    const day: POI[] = [];
-    while (day.length < perDay && idx < unique.length) {
-      day.push(unique[idx]);
-      idx++;
-    }
-    result.push(day);
-  }
-  return result;
-}
-
 function adjustAttractionForPace(poi: POI, pace: TravelPace): POI {
   if (pace !== "intense") return poi;
   return { ...poi, durationMinutes: Math.min(poi.durationMinutes, 90) };
+}
+
+async function buildAttractionPool(
+  req: TripRequest,
+  cityInfo: CityInfo,
+  needed: number,
+): Promise<{ pool: POI[]; topRanked: import("./types").RankedAttraction[]; specialPOIs: POI[] }> {
+  const constraints = parsePlanningConstraints(req);
+  const travelers = req.travelers ?? 2;
+
+  const [attractionResult, mustVisitPOIs, specialPOIs] = await Promise.all([
+    fetchRealAttractions(cityInfo, req.style, needed + 12, {
+      priority: req.priority,
+      budget: req.budget,
+      totalBudget: req.totalBudget,
+    }),
+    constraints.mustVisit.length > 0
+      ? fetchMustVisitPOIs(cityInfo, constraints.mustVisit, travelers)
+      : Promise.resolve([]),
+    constraints.specialKeywords.length > 0
+      ? fetchSpecialPOIs(cityInfo, constraints.specialKeywords)
+      : Promise.resolve([]),
+  ]);
+
+  let pool = filterExcluded(attractionResult.pool, constraints.exclude);
+  if (constraints.accessibility) {
+    pool = filterAccessibility(pool);
+  }
+  for (const m of mustVisitPOIs) {
+    if (!pool.some((p) => p.id === m.id || p.name === m.name)) pool.unshift(m);
+  }
+
+  const pace = effectivePace(req);
+  pool = pool.map((p) => adjustAttractionForPace(p, pace));
+
+  return { pool, topRanked: attractionResult.topRanked, specialPOIs };
+}
+
+function objectiveFromPriority(priority?: TripRequest["priority"]): PlanObjective {
+  if (priority === "time") return "time";
+  if (priority === "experience") return "experience";
+  return "value";
+}
+
+async function buildItineraryVariants(
+  main: Itinerary,
+  req: TripRequest,
+  pool: POI[],
+  cityInfo: CityInfo,
+  perDay: number,
+): Promise<ItineraryVariant[]> {
+  const objectives: PlanObjective[] = ["value", "time", "experience"];
+  const mainObjective = objectiveFromPriority(req.priority);
+  const variants: ItineraryVariant[] = [];
+
+  for (const obj of objectives) {
+    if (obj === mainObjective) {
+      variants.push({
+        objective: obj,
+        label: VARIANT_META[obj].label,
+        description: VARIANT_META[obj].description,
+        itinerary: main,
+      });
+      continue;
+    }
+
+    const dayLists = clusterDistributeAttractions(pool, req.days, perDay, obj);
+    const days = await Promise.all(
+      main.days.map((day, i) =>
+        rebuildDayVisits(day, dayLists[i] ?? [], cityInfo, { ...req, priority: obj }, obj),
+      ),
+    );
+
+    const travelCost = main.trainRoutes?.find((r) => r.recommended)?.totalPrice ?? 0;
+    const variantBase: Itinerary = {
+      ...main,
+      days,
+      totalCost: days.reduce((s, d) => s + d.totalCost, 0) + travelCost,
+      optimizationScore: calcOptimizationScore(
+        days.map((d) => d.totalDistance),
+        pool.slice(0, req.days * perDay).reduce((s, p) => s + p.rating, 0) / Math.max(req.days * perDay, 1),
+        main.optimizationScore,
+        main.optimizationScore,
+      ),
+    };
+
+    const withBudget = applyBudgetToItinerary(variantBase, { ...req, priority: obj });
+    variants.push({
+      objective: obj,
+      label: VARIANT_META[obj].label,
+      description: VARIANT_META[obj].description,
+      itinerary: withBudget,
+    });
+  }
+
+  return variants;
 }
 
 export async function generateItinerary(request: TripRequest): Promise<Itinerary> {
@@ -330,35 +439,30 @@ export async function generateItinerary(request: TripRequest): Promise<Itinerary
   const req: TripRequest = { ...request, budget: effectiveBudget, travelers };
 
   const cityInfo = await resolveCityInfo(req.city);
-  const perDay = PACE_ATTRACTIONS[req.pace];
+  const pace = effectivePace(req);
+  const perDay = PACE_ATTRACTIONS[pace];
   const needed = req.days * perDay;
   const departureCity = req.departureCity?.trim() || "上海";
-  const noteKeywords = parseNotesKeywords(req.notes);
+  const objective = objectiveFromPriority(req.priority);
 
-  const [forecasts, attractionResult, ticketResult, specialPOIs] = await Promise.all([
+  const [forecasts, ticketResult, poolResult] = await Promise.all([
     fetchRealWeatherForecast(cityInfo, req.startDate, req.days),
-    fetchRealAttractions(cityInfo, req.style, needed + 12, {
-      priority: req.priority,
-      budget: req.budget,
-      totalBudget: req.totalBudget,
-    }),
     departureCity !== cityInfo.name
       ? buildOptimalTravelTickets(req, cityInfo).catch((err) => {
           console.warn("[generate] travel tickets failed:", err);
           return null;
         })
       : Promise.resolve(null),
-    noteKeywords.length > 0 ? fetchSpecialPOIs(cityInfo, noteKeywords) : Promise.resolve([]),
+    buildAttractionPool(req, cityInfo, needed),
   ]);
 
-  const { pool: rawPool, topRanked } = attractionResult;
-  const attractionPool = rawPool.map((p) => adjustAttractionForPace(p, req.pace));
+  const { pool: attractionPool, topRanked, specialPOIs } = poolResult;
 
   if (attractionPool.length === 0 && specialPOIs.length === 0) {
     throw new Error(`未在「${cityInfo.formattedAddress}」找到足够景点，请换更具体的地名`);
   }
 
-  const dayAttractionLists = distributeAttractions(attractionPool, req.days, perDay);
+  const dayAttractionLists = clusterDistributeAttractions(attractionPool, req.days, perDay, objective);
 
   const dayPlans: DayPlan[] = [];
   for (let d = 0; d < req.days; d++) {
@@ -421,7 +525,15 @@ export async function generateItinerary(request: TripRequest): Promise<Itinerary
     topAttractions: topRanked,
   };
 
-  return applyBudgetToItinerary(base, req);
+  const final = applyBudgetToItinerary(base, req);
+  const priceAudit = auditItineraryPrices(final);
+  const variants = await buildItineraryVariants(final, req, attractionPool, cityInfo, perDay);
+  return {
+    ...final,
+    variants,
+    selectedVariant: objective,
+    priceAudit,
+  };
 }
 
 /** 流式生成：按阶段推送进度与部分结果 */
@@ -446,10 +558,11 @@ export async function generateItineraryWithProgress(
     const cityInfo = await resolveCityInfo(req.city);
     emitProgress("city", 12, `已定位 ${cityInfo.formattedAddress}`);
 
-    const perDay = PACE_ATTRACTIONS[req.pace];
+    const pace = effectivePace(req);
+    const perDay = PACE_ATTRACTIONS[pace];
     const needed = req.days * perDay;
     const departureCity = req.departureCity?.trim() || "上海";
-    const noteKeywords = parseNotesKeywords(req.notes);
+    const objective = objectiveFromPriority(req.priority);
 
     emitProgress("fetch", 18, "正在查询天气与交通…");
 
@@ -458,14 +571,15 @@ export async function generateItineraryWithProgress(
       departureCity !== cityInfo.name
         ? buildOptimalTravelTickets(req, cityInfo).catch(() => null)
         : Promise.resolve(null);
-    const specialPromise =
-      noteKeywords.length > 0 ? fetchSpecialPOIs(cityInfo, noteKeywords) : Promise.resolve([]);
+    const poolPromise = buildAttractionPool(req, cityInfo, needed);
 
-    const [forecasts, ticketResult, specialPOIs] = await Promise.all([
+    const [forecasts, ticketResult, poolResult] = await Promise.all([
       forecastsPromise,
       ticketsPromise,
-      specialPromise,
+      poolPromise,
     ]);
+
+    const { pool: attractionPool, topRanked, specialPOIs } = poolResult;
 
     if (ticketResult?.trainRoutes) {
       emit({
@@ -489,16 +603,7 @@ export async function generateItineraryWithProgress(
       emitProgress("transport", 35, "交通方案已就绪");
     }
 
-    emitProgress("attractions", 40, "正在筛选必去景点与实拍图…");
-
-    const attractionResult = await fetchRealAttractions(cityInfo, req.style, needed + 12, {
-      priority: req.priority,
-      budget: req.budget,
-      totalBudget: req.totalBudget,
-    });
-
-    const { pool: rawPool, topRanked } = attractionResult;
-    const attractionPool = rawPool.map((p) => adjustAttractionForPace(p, req.pace));
+    emitProgress("attractions", 40, "正在地理聚类分配景点…");
 
     if (attractionPool.length === 0 && specialPOIs.length === 0) {
       throw new Error(`未在「${cityInfo.formattedAddress}」找到足够景点，请换更具体的地名`);
@@ -510,7 +615,7 @@ export async function generateItineraryWithProgress(
     });
     emitProgress("ranked", 55, `必去榜 TOP${topRanked.length} 已生成`);
 
-    const dayAttractionLists = distributeAttractions(attractionPool, req.days, perDay);
+    const dayAttractionLists = clusterDistributeAttractions(attractionPool, req.days, perDay, objective);
     const dayPlans: DayPlan[] = [];
     const daySpan = 40 / req.days;
 
@@ -584,11 +689,19 @@ export async function generateItineraryWithProgress(
       topAttractions: topRanked,
     };
 
-    emitProgress("budget", 92, "正在优化预算…");
+    emitProgress("budget", 88, "正在优化预算与生成多方案…");
     const finalItinerary = applyBudgetToItinerary(base, req);
-    emitProgress("done", 100, "行程生成完成");
-    emit({ type: "complete", itinerary: finalItinerary });
-    return finalItinerary;
+    const priceAudit = auditItineraryPrices(finalItinerary);
+    const variants = await buildItineraryVariants(finalItinerary, req, attractionPool, cityInfo, perDay);
+    const complete: Itinerary = {
+      ...finalItinerary,
+      variants,
+      selectedVariant: objective,
+      priceAudit,
+    };
+    emitProgress("done", 100, "行程生成完成（含 3 套方案）");
+    emit({ type: "complete", itinerary: complete });
+    return complete;
   } catch (err) {
     const message = err instanceof Error ? err.message : "生成失败";
     emit({ type: "error", message });
@@ -601,17 +714,37 @@ export async function refreshDayItinerary(request: TripRequest, dayIndex: number
   const forecasts = await fetchRealWeatherForecast(cityInfo, request.startDate, request.days);
   if (dayIndex >= forecasts.length) return null;
 
-  const perDay = PACE_ATTRACTIONS[request.pace];
-  const result = await fetchRealAttractions(cityInfo, request.style, (dayIndex + 1) * perDay + 4, {
-    priority: request.priority,
-    budget: request.budget,
-    totalBudget: request.totalBudget,
-  });
-  const dayAttractions = result.pool
-    .map((p) => adjustAttractionForPace(p, request.pace))
-    .slice(dayIndex * perDay, (dayIndex + 1) * perDay);
+  const pace = effectivePace(request);
+  const perDay = PACE_ATTRACTIONS[pace];
+  const objective = objectiveFromPriority(request.priority);
+  const needed = (dayIndex + 1) * perDay + 4;
+
+  const { pool, specialPOIs } = await buildAttractionPool(request, cityInfo, needed);
+  const dayLists = clusterDistributeAttractions(pool, request.days, perDay, objective);
+  const dayAttractions = dayLists[dayIndex] ?? [];
+
   if (dayAttractions.length === 0) return null;
 
-  const specialPOIs = await fetchSpecialPOIs(cityInfo, parseNotesKeywords(request.notes));
   return buildDayPlan(dayIndex, forecasts[dayIndex].date, forecasts[dayIndex], dayAttractions, cityInfo, request, specialPOIs);
+}
+
+/** 按用户指定景点顺序重算单日（拖拽改序） */
+export async function reoptimizeDayItinerary(
+  request: TripRequest,
+  dayIndex: number,
+  attractionIds: string[],
+  templateDay: DayPlan,
+): Promise<DayPlan | null> {
+  const cityInfo = await resolveCityInfo(request.city);
+  const needed = request.days * PACE_ATTRACTIONS[effectivePace(request)] + 12;
+  const { pool } = await buildAttractionPool(request, cityInfo, needed);
+
+  const ordered = attractionIds
+    .map((id) => pool.find((p) => p.id === id))
+    .filter((p): p is POI => p != null);
+
+  if (ordered.length === 0) return null;
+
+  const objective = objectiveFromPriority(request.priority);
+  return rebuildDayVisits(templateDay, ordered, cityInfo, request, objective);
 }

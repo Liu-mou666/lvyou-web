@@ -192,6 +192,7 @@ export function computeBudgetBreakdown(
     total,
     status: ratio > 1 ? "over" : ratio > 0.9 ? "tight" : "within",
     savingsTips,
+    budgetGap: ratio > 1 ? total - limit : 0,
   };
 }
 
