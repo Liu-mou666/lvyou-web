@@ -254,22 +254,6 @@ select {
   border-top: 1px solid var(--warm-200);
 }
 
-/* 手机选项芯片 */
-.chip-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.chip-option {
-  flex: 1 1 calc(50% - 0.25rem);
-  min-width: 0;
-}
-
-.chip-option-full {
-  flex: 1 1 100%;
-}
-
 .break-anywhere {
   overflow-wrap: anywhere;
   word-break: break-word;
