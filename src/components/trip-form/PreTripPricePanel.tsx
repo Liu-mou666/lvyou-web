@@ -120,18 +120,38 @@ export default function PreTripPricePanel({ state }: PreTripPricePanelProps) {
                   <p className="mt-1 text-xs text-warm-muted">{data.recommendedTrain.description}</p>
                 </div>
                 <div className="text-right">
-                  {data.recommendedTrain.verified && data.recommendedTrain.totalPrice > 0 ? (
+                  {data.recommendedTrain.totalPrice > 0 ? (
                     <>
                       <p className="text-2xl font-bold tabular-nums text-warm-600">
                         ¥{data.recommendedTrain.totalPrice}
                       </p>
-                      <p className="text-[10px] text-warm-muted">{state.travelers}人合计</p>
+                      <p className="text-[10px] text-warm-muted">
+                        {state.travelers}人合计
+                        {data.recommendedTrain.verified
+                          ? " · 12306验证"
+                          : data.recommendedTrain.type === "transfer"
+                            ? " · 中转参考价"
+                            : " · 参考价"}
+                      </p>
                     </>
                   ) : (
                     <p className="text-sm font-medium text-amber-700">需链接查实价</p>
                   )}
                 </div>
               </div>
+              {data.recommendedTrain.priceNote && (
+                <p className="mt-2 text-[11px] text-warm-muted">{data.recommendedTrain.priceNote}</p>
+              )}
+              {data.recommendedTrain.type === "transfer" && data.recommendedTrain.legs.length >= 2 && (
+                <div className="mt-2 space-y-1 rounded-lg border border-warm-200 bg-white/80 p-2 text-[11px] text-warm-700">
+                  {data.recommendedTrain.legs.map((leg, i) => (
+                    <p key={i}>
+                      第{i + 1}段 {leg.from} → {leg.to}
+                      {leg.durationHours > 0 ? ` · ${leg.durationHours}h · ¥${leg.price}` : ""}
+                    </p>
+                  ))}
+                </div>
+              )}
               <div className="mt-3 flex flex-wrap gap-2">
                 {data.recommendedTrain.links.slice(0, 4).map((link, i) => (
                   <a

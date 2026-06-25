@@ -14,8 +14,11 @@ import {
 import {
   buildTrainBookingLinks,
   buildLegBookingLinks,
+  buildTransferEvidence,
   findTransferHubs,
   formatDuration,
+  lookupSegment,
+  type TransferCandidate,
 } from "../engine/transport-graph";
 import type { Evidence, PlatformLink, TrainRoute, TripRequest } from "../types";
 import { fetchDrivingRoute } from "./amap";
@@ -82,7 +85,168 @@ async function legFromJuheMulti(
 }
 
 function stationLabelList(stations: RailStation[]): string {
-  return stations.map((s) => s.name).join("、");
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const s of stations) {
+    if (!seen.has(s.name)) {
+      seen.add(s.name);
+      names.push(s.name);
+    }
+  }
+  return names.join("、");
+}
+
+interface ResolvedLeg {
+  from: RailStation;
+  to: RailStation;
+  hours: number;
+  price: number;
+  juhe?: LegResult["juhe"];
+  trainNo?: string;
+  departTime?: string;
+  arriveTime?: string;
+  source: "juhe" | "segment";
+}
+
+/** 优先 12306 验证，失败则用铁路区段参考库 */
+async function resolveLeg(
+  fromCandidates: RailStation[],
+  toCandidates: RailStation[],
+  date: string,
+  travelers: number,
+): Promise<ResolvedLeg | null> {
+  const juhe = await legFromJuheMulti(fromCandidates, toCandidates, date, travelers);
+  if (juhe) {
+    const best = juhe.juhe!.direct[0];
+    return {
+      from: juhe.fromSt,
+      to: juhe.toSt,
+      hours: juhe.hours,
+      price: juhe.price,
+      juhe: juhe.juhe,
+      trainNo: best.trainNo,
+      departTime: juhe.departTime,
+      arriveTime: juhe.arriveTime,
+      source: "juhe",
+    };
+  }
+
+  let best: ResolvedLeg | null = null;
+  for (const fromSt of fromCandidates) {
+    for (const toSt of toCandidates) {
+      const seg = lookupSegment(fromSt.name, toSt.name);
+      if (!seg) continue;
+      const price = Math.round(seg.pricePerPerson * travelers);
+      const candidate: ResolvedLeg = {
+        from: fromSt,
+        to: toSt,
+        hours: seg.hours,
+        price,
+        source: "segment",
+      };
+      if (!best || price < best.price) best = candidate;
+    }
+  }
+  return best;
+}
+
+function transferMinutesForHub(hubName: string): number {
+  if (hubName.includes("虹桥")) return 35;
+  if (hubName.includes("上海")) return 40;
+  return 45;
+}
+
+function assembleTransferRoute(
+  leg1: ResolvedLeg,
+  leg2: ResolvedLeg,
+  hub: RailStation,
+  date: string,
+  travelers: number,
+  cand: TransferCandidate,
+  priority: TripRequest["priority"],
+  fromName: string,
+  toName: string,
+): TrainRoute {
+  const transferMin = transferMinutesForHub(hub.name);
+  const totalHours = Math.round((leg1.hours + leg2.hours + transferMin / 60) * 10) / 10;
+  const price = leg1.price + leg2.price;
+  const fullyVerified = leg1.source === "juhe" && leg2.source === "juhe";
+  const hasSegment = leg1.source === "segment" || leg2.source === "segment";
+
+  let score = cand.score;
+  if (priority === "value") score += 5;
+  if (priority === "time") score += 30 - totalHours * 2;
+  if (hasSegment && !fullyVerified) score -= 8;
+
+  const leg1Links = buildLegBookingLinks(leg1.from, hub, date, "第1段");
+  const leg2Links = buildLegBookingLinks(hub, leg2.to, date, "第2段");
+  const evidence: Evidence[] = [
+    buildTransferEvidence(fromName, toName, hub, cand.km1, cand.km2),
+  ];
+  if (leg1.juhe) evidence.push(juheEvidence(leg1.juhe, leg1.from.name, hub.name));
+  if (leg2.juhe) evidence.push(juheEvidence(leg2.juhe, hub.name, leg2.to.name));
+
+  const leg1Label =
+    leg1.source === "juhe" && leg1.trainNo
+      ? `${leg1.from.name} ${leg1.trainNo}→${hub.name}(${formatDuration(leg1.hours)})`
+      : `${leg1.from.name}→${hub.name}(${formatDuration(leg1.hours)}·参考)`;
+  const leg2Label =
+    leg2.source === "juhe" && leg2.trainNo
+      ? `${hub.name} ${leg2.trainNo}→${leg2.to.name}(${formatDuration(leg2.hours)})`
+      : `${hub.name}→${leg2.to.name}(${formatDuration(leg2.hours)}·参考)`;
+
+  const priceTag = fullyVerified
+    ? `${travelers}人·12306 实时`
+    : hasSegment
+      ? `${travelers}人·区段参考价`
+      : `${travelers}人`;
+
+  return {
+    id: fullyVerified ? `transfer-${hub.telecode}` : `segment-transfer-${hub.telecode}`,
+    type: "transfer",
+    title: fullyVerified ? `经 ${hub.name} 中转` : `经 ${hub.name} 中转（参考价）`,
+    transferCity: hub.name,
+    legs: [
+      {
+        from: leg1.from.name,
+        to: hub.name,
+        durationHours: leg1.hours,
+        price: leg1.price,
+        bookingLinks: leg1Links,
+      },
+      {
+        from: hub.name,
+        to: leg2.to.name,
+        durationHours: leg2.hours,
+        price: leg2.price,
+        bookingLinks: leg2Links,
+      },
+    ],
+    totalHours,
+    totalPrice: price,
+    transferMinutes: transferMin,
+    departTime: leg1.departTime,
+    arriveTime: leg2.arriveTime,
+    description: `${leg1Label} · ${hub.name}换乘${transferMin}分 · ${leg2Label} · 全程${formatDuration(totalHours)} · 二等座 ¥${price}（${priceTag}）`,
+    score,
+    recommended: false,
+    verified: fullyVerified,
+    verifiedAt: fullyVerified ? leg2.juhe?.fetchedAt : undefined,
+    bookingUrl: ctripTrainUrl(leg1.from.name, leg2.to.name, date),
+    links: [
+      ...leg1Links,
+      ...leg2Links,
+      ...buildTrainBookingLinks(leg1.from.name, leg2.to.name, date, leg1.from, leg2.to).filter((l) =>
+        l.action.includes("中转"),
+      ),
+    ],
+    evidence,
+    trainNumbers: [leg1.trainNo, leg2.trainNo].filter(Boolean) as string[],
+    dataSource: fullyVerified ? leg1.juhe!.source : "铁路区段参考价库",
+    priceNote: fullyVerified
+      ? "两段均已验证有列次，换乘时间请预留充足"
+      : "远期或未放票：价格为常见区段参考，分段链接可查实价与中转方案",
+  };
 }
 
 function buildSearchOnlyRoute(
@@ -94,8 +258,8 @@ function buildSearchOnlyRoute(
   const fromSt = fromCandidates[0];
   const toSt = toCandidates[0];
   const links = buildTrainBookingLinks(fromSt.name, toSt.name, date, fromSt, toSt);
-  const triedFrom = fromCandidates.flatMap((s) => stationQueryNames(s)).join("、");
-  const triedTo = toCandidates.flatMap((s) => stationQueryNames(s)).join("、");
+  const triedFrom = stationLabelList(fromCandidates);
+  const triedTo = stationLabelList(toCandidates);
 
   return {
     id: "search-only",
@@ -105,7 +269,7 @@ function buildSearchOnlyRoute(
     totalHours: 0,
     totalPrice: 0,
     transferMinutes: 0,
-    description: `${reason}。已尝试出发：${triedFrom}；到达：${triedTo}`,
+    description: `${reason}。已尝试站点：${triedFrom} → ${triedTo}。建议点击携程「查车次·中转」查看经武汉/长沙/上海等枢纽方案`,
     score: 0,
     recommended: false,
     verified: false,
@@ -162,62 +326,16 @@ async function buildTransferRoute(
   toCandidates: RailStation[],
   date: string,
   travelers: number,
-  cand: ReturnType<typeof findTransferHubs>[0],
+  cand: TransferCandidate,
   priority: TripRequest["priority"],
+  fromName: string,
+  toName: string,
 ): Promise<TrainRoute | null> {
   const hub = cand.hub;
-  const leg1 = await legFromJuheMulti(fromCandidates, [hub], date, travelers);
-  const leg2 = await legFromJuheMulti([hub], toCandidates, date, travelers);
+  const leg1 = await resolveLeg(fromCandidates, [hub], date, travelers);
+  const leg2 = await resolveLeg([hub], toCandidates, date, travelers);
   if (!leg1 || !leg2) return null;
-
-  const transferMin = hub.name.includes("虹桥") ? 35 : hub.name.includes("上海") ? 40 : 45;
-  const totalHours = Math.round((leg1.hours + leg2.hours + transferMin / 60) * 10) / 10;
-  const price = leg1.price + leg2.price;
-
-  let score = cand.score;
-  if (priority === "value") score += 5;
-  if (priority === "time") score += 30 - totalHours * 2;
-
-  const leg1Links = buildLegBookingLinks(leg1.fromSt, hub, date, "第1段");
-  const leg2Links = buildLegBookingLinks(hub, leg2.toSt, date, "第2段");
-  const evidence: Evidence[] = [
-    juheEvidence(leg1.juhe!, leg1.fromSt.name, hub.name),
-    juheEvidence(leg2.juhe!, hub.name, leg2.toSt.name),
-  ];
-
-  const t1 = leg1.juhe!.direct[0];
-  const t2 = leg2.juhe!.direct[0];
-
-  return {
-    id: `transfer-${hub.telecode}`,
-    type: "transfer",
-    title: `经 ${hub.name} 中转`,
-    transferCity: hub.name,
-    legs: [
-      { from: leg1.fromSt.name, to: hub.name, durationHours: leg1.hours, price: leg1.price, bookingLinks: leg1Links },
-      { from: hub.name, to: leg2.toSt.name, durationHours: leg2.hours, price: leg2.price, bookingLinks: leg2Links },
-    ],
-    totalHours,
-    totalPrice: price,
-    transferMinutes: transferMin,
-    departTime: leg1.departTime,
-    arriveTime: leg2.arriveTime,
-    description: `${leg1.fromSt.name} ${t1.trainNo ?? ""}→${hub.name}(${formatDuration(leg1.hours)}) · ${hub.name}换乘${transferMin}分 · ${leg2.toSt.name} ${t2.trainNo ?? ""}(${formatDuration(leg2.hours)}) · 全程${formatDuration(totalHours)} · 二等座 ¥${price}（${travelers}人·12306 实时）`,
-    score,
-    recommended: false,
-    verified: true,
-    verifiedAt: leg2.juhe!.fetchedAt,
-    bookingUrl: ctripTrainUrl(leg1.fromSt.name, leg2.toSt.name, date),
-    links: [
-      ...leg1Links,
-      ...leg2Links,
-      ...buildTrainBookingLinks(leg1.fromSt.name, leg2.toSt.name, date, leg1.fromSt, leg2.toSt).filter((l) => l.action.includes("中转")),
-    ],
-    evidence,
-    trainNumbers: [t1.trainNo, t2.trainNo].filter(Boolean) as string[],
-    dataSource: leg1.juhe!.source,
-    priceNote: "两段均已验证有列次，换乘时间请预留充足",
-  };
+  return assembleTransferRoute(leg1, leg2, hub, date, travelers, cand, priority, fromName, toName);
 }
 
 /** 构建去程交通方案（仅展示 12306 数据源验证有票方案） */
@@ -270,25 +388,36 @@ export async function buildOptimalTravelTickets(
       travelers,
     });
 
-    for (const cand of transfers.slice(0, 8)) {
-      const route = await buildTransferRoute(fromCandidates, toCandidates, date, travelers, cand, priority);
+    for (const cand of transfers.slice(0, 12)) {
+      const route = await buildTransferRoute(
+        fromCandidates,
+        toCandidates,
+        date,
+        travelers,
+        cand,
+        priority,
+        fromName,
+        toName,
+      );
       if (route) trainRoutes.push(route);
     }
 
     if (trainRoutes.length === 0) {
       const msg = hasJuheKey()
-        ? `12306 数据源未查到 ${stationLabelList(fromCandidates)}→${stationLabelList(toCandidates)} 在 ${date} 的可售车次`
+        ? `12306 未返回 ${date} 当日可售车次（可能尚未放票）`
         : "未配置 JUHE_TRAIN_KEY，无法验证余票";
       trainRoutes.push(buildSearchOnlyRoute(fromCandidates, toCandidates, date, msg));
     } else {
       const totalBudget = request.totalBudget ?? 0;
       const travelCap = totalBudget > 0 ? totalBudget * 0.35 : Infinity;
       const verified = trainRoutes.filter((r) => r.verified);
-      const candidatePool =
-        request.preferDirectTrain
-          ? verified.filter((r) => r.type === "direct")
-          : verified;
-      const pool = candidatePool.length > 0 ? candidatePool : verified;
+      const withPrice = trainRoutes.filter((r) => r.totalPrice > 0);
+      const candidatePool = request.preferDirectTrain
+        ? (verified.length ? verified.filter((r) => r.type === "direct") : withPrice.filter((r) => r.type === "direct"))
+        : verified.length
+          ? verified
+          : withPrice;
+      const pool = candidatePool.length > 0 ? candidatePool : trainRoutes.filter((r) => r.id !== "search-only");
 
       const pickBest = (): TrainRoute => {
         if (totalBudget > 0 || priority === "value") {

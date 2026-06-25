@@ -87,8 +87,11 @@ function RouteRow({
           {route.priceNote && (
             <p className="mt-1.5 text-[10px] text-amber-700">{route.priceNote}</p>
           )}
-          {route.verified === false && (
-            <p className="mt-1.5 text-[10px] font-medium text-amber-700">⚠ 未验证余票，不展示估算票价</p>
+          {route.verified === false && route.totalPrice <= 0 && (
+            <p className="mt-1.5 text-[10px] font-medium text-amber-700">⚠ 未验证余票，请通过下方链接查价</p>
+          )}
+          {route.verified === false && route.totalPrice > 0 && (
+            <p className="mt-1.5 text-[10px] font-medium text-sky-700">区段参考价，放票后请 12306 核实</p>
           )}
           {route.verified && route.verifiedAt && (
             <p className="mt-1 text-[10px] text-emerald-700">✓ 12306 数据源验证 · {new Date(route.verifiedAt).toLocaleString("zh-CN")}</p>
@@ -102,10 +105,12 @@ function RouteRow({
         </div>
         <div className="flex items-center justify-between gap-4 rounded-xl bg-warm-100 px-3 py-2 sm:block sm:bg-transparent sm:p-0 sm:text-right">
           <div>
-            {route.verified !== false && route.totalPrice > 0 ? (
+            {route.totalPrice > 0 ? (
               <>
                 <p className="text-xl font-bold tabular-nums text-warm-600">¥{route.totalPrice}</p>
-                <p className="text-[10px] text-warm-muted">{travelers}人合计</p>
+                <p className="text-[10px] text-warm-muted">
+                  {travelers}人合计{route.verified ? "" : "·参考"}
+                </p>
               </>
             ) : (
               <p className="text-sm font-medium text-warm-muted">请链接查价</p>

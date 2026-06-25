@@ -166,8 +166,8 @@ export function findTransferHubs(
   }
 
   return candidates
-    .sort((a, b) => (preferCentral ? b.score - a.score : b.score - a.score))
-    .slice(0, 6);
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10);
 }
 
 export function buildTransferEvidence(
