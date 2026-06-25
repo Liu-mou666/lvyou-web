@@ -53,8 +53,8 @@ const MAX_HOTEL_NIGHT: Record<BudgetLevel, number> = {
 
 /** 情侣出行最低可接受房价/晚（低于此多为青旅床位，不推荐） */
 const MIN_HOTEL_NIGHT: Record<BudgetLevel, number> = {
-  budget: 120,
-  moderate: 160,
+  budget: 100,
+  moderate: 120,
   luxury: 280,
 };
 
@@ -179,7 +179,8 @@ function amapToPOI(
   if (costRaw > 0) {
     pricePerPerson = costRaw;
   } else if (type === "attraction") {
-    // 无票价数据时不编造 80 元，标为 0
+    pricePerPerson = 0;
+  } else if (type === "hotel") {
     pricePerPerson = 0;
   } else {
     pricePerPerson = defaultPrice(type, mealTime, budget);
@@ -259,9 +260,105 @@ function mealValueScore(poi: POI): number {
   return poi.rating * 20 - price * 0.3;
 }
 
-function hotelValueScore(poi: POI): number {
+function hotelValueScore(poi: POI, priority: import("../types").PriorityMode = "value"): number {
   const price = Math.max(poi.pricePerPerson, 1);
-  return poi.rating * 25 - price * 0.05;
+  if (priority === "value") return poi.rating * 12 - price * 0.4;
+  if (priority === "experience") return poi.rating * 28 - price * 0.06;
+  return poi.rating * 20 - price * 0.12;
+}
+
+/** 当日最后一站附近酒店，按性价比/预算排序 */
+export async function fetchHotelsNearLocation(
+  nearLocation: string,
+  cityInfo: CityInfo,
+  budget: BudgetLevel,
+  limit = 3,
+  checkIn?: string,
+  opts?: {
+    priority?: import("../types").PriorityMode;
+    totalBudget?: number;
+    days?: number;
+    travelers?: number;
+  },
+): Promise<POI[]> {
+  const priority = opts?.priority ?? "value";
+  const travelers = opts?.travelers ?? 2;
+  const days = opts?.days ?? 1;
+  const totalBudget = opts?.totalBudget ?? 0;
+
+  let maxNight = MAX_HOTEL_NIGHT[budget];
+  let minNight = MIN_HOTEL_NIGHT[budget];
+
+  if (totalBudget > 0 && days > 0) {
+    const perPersonDay = totalBudget / days / Math.max(travelers, 1);
+    const lodgingShare = priority === "value" ? 0.32 : priority === "time" ? 0.42 : 0.38;
+    const capFromBudget = Math.round(perPersonDay * lodgingShare);
+    maxNight = Math.min(maxNight, Math.max(minNight, capFromBudget));
+  } else if (priority === "value" || budget === "budget") {
+    maxNight = Math.min(maxNight, budget === "budget" ? 150 : 180);
+  }
+
+  const keywords =
+    priority === "value" || budget === "budget"
+      ? ["汉庭", "如家", "7天", "锦江之星", "格林豪泰", "全季", "维也纳", "经济型酒店"]
+      : budget === "luxury"
+        ? ["高档酒店", "精品酒店", "四星酒店"]
+        : ["全季", "亚朵", "汉庭", "舒适型酒店", "商务酒店"];
+
+  const all: POI[] = [];
+  for (const kw of keywords) {
+    const pois = await searchAround({ location: nearLocation, keywords: kw, types: "100000", radius: 3000 });
+    for (const p of pois) {
+      const mapped = amapToPOI(p, "hotel", "mixed", cityInfo.name, undefined, budget);
+      if (!mapped) continue;
+      let price = mapped.pricePerPerson;
+      if (price <= 0) {
+        if (/汉庭|如家|7天|锦江之星|格林豪泰|尚客优|怡莱/.test(mapped.name)) {
+          price = 128;
+          mapped.pricePerPerson = price;
+          mapped.cost = price;
+          mapped.priceConfidence = "low";
+          mapped.priceNote = "连锁经济型参考价 ¥128/晚";
+        } else if (/全季|亚朵|维也纳/.test(mapped.name)) {
+          price = 168;
+          mapped.pricePerPerson = price;
+          mapped.cost = price;
+          mapped.priceConfidence = "low";
+          mapped.priceNote = "连锁舒适型参考价 ¥168/晚";
+        } else {
+          continue;
+        }
+      }
+      if (price < minNight * 0.85 || price > maxNight) continue;
+      if (mapped.rating >= 4.0) all.push(mapped);
+    }
+  }
+
+  const deduped = dedupePOIs(all);
+
+  const ranked = deduped.sort((a, b) => {
+    if (priority === "value") {
+      const priceDiff = a.pricePerPerson - b.pricePerPerson;
+      if (priceDiff !== 0) return priceDiff;
+      return b.rating - a.rating;
+    }
+    return hotelValueScore(b, priority) - hotelValueScore(a, priority);
+  });
+
+  const picked = ranked.slice(0, limit + 2);
+
+  const verified: POI[] = [];
+  for (const p of picked.slice(0, limit)) {
+    const enriched = await enrichPOIVerified(p, cityInfo, { checkIn, travelers });
+    verified.push({
+      ...enriched,
+      priceNote:
+        priority === "value" && enriched.pricePerPerson > 0
+          ? `性价比推荐 ¥${enriched.pricePerPerson}/晚 · 备选有更低价`
+          : enriched.priceNote,
+    });
+  }
+  return verified;
 }
 
 /** 解析用户特殊需求关键词 */
@@ -487,43 +584,6 @@ export async function fetchNearbyRestaurants(
     verified.push(await enrichPOIVerified(p, cityInfo));
   }
   return verified.length > 0 ? verified : ranked;
-}
-
-/** 当日最后一站附近酒店，按性价比排序 */
-export async function fetchHotelsNearLocation(
-  nearLocation: string,
-  cityInfo: CityInfo,
-  budget: BudgetLevel,
-  limit = 3,
-  checkIn?: string,
-): Promise<POI[]> {
-  const maxNight = MAX_HOTEL_NIGHT[budget];
-  const minNight = MIN_HOTEL_NIGHT[budget];
-  const keywords =
-    budget === "budget"
-      ? ["全季", "汉庭", "如家", "维也纳", "舒适型酒店"]
-      : budget === "luxury"
-        ? ["高档酒店", "精品酒店", "四星酒店"]
-        : ["舒适型酒店", "商务酒店", "亚朵"];
-
-  const all: POI[] = [];
-  for (const kw of keywords) {
-    const pois = await searchAround({ location: nearLocation, keywords: kw, types: "100000", radius: 2500 });
-    for (const p of pois) {
-      const mapped = amapToPOI(p, "hotel", "mixed", cityInfo.name, undefined, budget);
-      if (mapped && mapped.pricePerPerson >= minNight && mapped.pricePerPerson <= maxNight && mapped.rating >= 4.0) all.push(mapped);
-    }
-  }
-
-  const ranked = dedupePOIs(all)
-    .sort((a, b) => hotelValueScore(b) - hotelValueScore(a))
-    .slice(0, limit + 2);
-
-  const verified: POI[] = [];
-  for (const p of ranked.slice(0, limit)) {
-    verified.push(await enrichPOIVerified(p, cityInfo, { checkIn }));
-  }
-  return verified;
 }
 
 export async function fetchRealWeatherForecast(

@@ -309,6 +309,12 @@ async function buildDayPlan(
       request.budget,
       3,
       date,
+      {
+        priority: request.priority,
+        totalBudget: request.totalBudget,
+        days: request.days,
+        travelers,
+      },
     );
     if (hotels.length > 0) {
       hotel = hotels[0];

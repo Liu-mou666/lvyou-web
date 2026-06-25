@@ -10,7 +10,7 @@ import type { Itinerary, POI, TimelineItem } from "@/lib/types";
 import { valueRankLabel } from "@/lib/realtime-engine";
 import { transportIcon, transportLabel } from "@/lib/transport";
 import { weatherIcon } from "@/lib/weather";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 interface ItineraryViewProps {
   itinerary: Itinerary;
@@ -65,6 +65,60 @@ function POILinks({ poi }: { poi: POI }) {
           {link.label} · {link.action} →
         </a>
       ))}
+    </div>
+  );
+}
+
+function DayNavigator({
+  days,
+  activeDay,
+  onChange,
+}: {
+  days: Itinerary["days"];
+  activeDay: number;
+  onChange: (i: number) => void;
+}) {
+  if (days.length <= 1) return null;
+
+  return (
+    <div className="sticky top-[4.5rem] z-20 -mx-1 mb-3 rounded-xl border border-warm-200 bg-white/95 px-2 py-2 backdrop-blur-sm">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={activeDay <= 0}
+          onClick={() => onChange(activeDay - 1)}
+          className="shrink-0 rounded-lg border border-warm-300 px-3 py-2 text-xs font-medium text-warm-700 disabled:opacity-40"
+        >
+          ← 上一天
+        </button>
+        <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto scrollbar-none">
+          {days.map((day, i) => (
+            <button
+              key={day.day}
+              type="button"
+              onClick={() => onChange(i)}
+              className={`shrink-0 rounded-full px-3.5 py-2 text-xs font-semibold transition ${
+                activeDay === i
+                  ? "bg-warm-500 text-white shadow-sm"
+                  : "border border-warm-200 bg-warm-50 text-warm-text"
+              }`}
+            >
+              第{day.day}天
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          disabled={activeDay >= days.length - 1}
+          onClick={() => onChange(activeDay + 1)}
+          className="shrink-0 rounded-lg border border-warm-300 px-3 py-2 text-xs font-medium text-warm-700 disabled:opacity-40"
+        >
+          下一天 →
+        </button>
+      </div>
+      <p className="mt-1.5 text-center text-[10px] text-warm-muted">
+        {days[activeDay]?.date} · {days[activeDay]?.summary}
+      </p>
     </div>
   );
 }
@@ -245,20 +299,31 @@ function DayContent({
       </div>
       {day.hotel && (
         <div className="mt-3 rounded-xl border border-warm-300 bg-warm-glow/40 p-3">
-          <p className="text-xs font-medium text-warm-700">当晚住宿推荐</p>
+          <p className="text-xs font-medium text-warm-700">当晚住宿推荐（按性价比排序）</p>
           <p className="mt-1 font-semibold text-warm-text break-anywhere">{day.hotel.name}</p>
-          {day.hotel.priceNote ? (
-            <p className="mt-1 text-[11px] leading-relaxed text-amber-800">{day.hotel.priceNote}</p>
-          ) : day.hotel.pricePerPerson > 0 ? (
-            <p className="text-sm text-warm-muted">高德参考 ¥{day.hotel.pricePerPerson}/晚</p>
-          ) : null}
-          {day.hotelAlternatives && day.hotelAlternatives.length > 0 && (
-            <p className="mt-1 text-[10px] text-warm-muted">
-              备选：{day.hotelAlternatives.map((h) => h.name).join("、")}
+          {day.hotel.pricePerPerson > 0 ? (
+            <p className="mt-1 text-sm font-semibold tabular-nums text-warm-600">
+              ¥{day.hotel.pricePerPerson}/晚
+              {day.hotel.priceConfidence === "high" ? " · 高德收录" : " · 参考价"}
             </p>
+          ) : null}
+          {day.hotel.priceNote && (
+            <p className="mt-1 text-[11px] leading-relaxed text-amber-800">{day.hotel.priceNote}</p>
           )}
-          <POILinks poi={day.hotel} />
-          <PriceCheckBar poi={day.hotel} travelers={travelers} />
+          {day.hotelAlternatives && day.hotelAlternatives.length > 0 && (
+            <ul className="mt-2 space-y-1 rounded-lg border border-warm-200 bg-white/80 p-2">
+              <p className="text-[10px] font-semibold text-warm-muted">更省备选</p>
+              {day.hotelAlternatives.map((h) => (
+                <li key={h.id} className="flex items-center justify-between gap-2 text-[11px] text-warm-text">
+                  <span className="min-w-0 break-anywhere">{h.name}</span>
+                  <span className="shrink-0 tabular-nums font-medium text-emerald-700">
+                    {h.pricePerPerson > 0 ? `¥${h.pricePerPerson}/晚` : "待查价"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <PriceCheckBar poi={day.hotel} travelers={travelers} compact />
         </div>
       )}
     </>
@@ -275,7 +340,12 @@ export default function ItineraryView({
   travelers = 2,
 }: ItineraryViewProps) {
   const [activeDay, setActiveDay] = useState(0);
+  const [expandAll, setExpandAll] = useState(false);
   const visitCount = itinerary.days.reduce((n, d) => n + d.items.filter((i) => i.kind === "visit").length, 0);
+
+  useEffect(() => {
+    setActiveDay(0);
+  }, [itinerary.generatedAt, itinerary.days.length]);
 
   return (
     <div className="min-w-0 space-y-3 sm:space-y-5">
@@ -316,27 +386,25 @@ export default function ItineraryView({
         <DestinationRankList city={itinerary.city} attractions={itinerary.topAttractions} />
       )}
 
-      {/* 手机：按天 Tab */}
-      <div className="sm:hidden">
-        <div className="snap-scroll-x -mx-1 mb-3 px-1">
-          {itinerary.days.map((day, i) => (
-            <button
-              key={day.day}
-              type="button"
-              onClick={() => setActiveDay(i)}
-              className={`rounded-full px-4 py-2.5 text-sm font-medium transition ${
-                activeDay === i
-                  ? "bg-warm-500 text-white shadow-md"
-                  : "border border-warm-200 bg-white text-warm-text"
-              }`}
-            >
-              第{day.day}天
-            </button>
-          ))}
-        </div>
-        <div className="card-warm p-3">
+      {/* 按天切换：全端可见 */}
+      {itinerary.days.length > 1 && (
+        <DayNavigator days={itinerary.days} activeDay={activeDay} onChange={setActiveDay} />
+      )}
+
+      {itinerary.days.length > 1 && (
+        <button
+          type="button"
+          onClick={() => setExpandAll((v) => !v)}
+          className="hidden w-full rounded-lg border border-warm-200 bg-warm-50 py-2 text-xs font-medium text-warm-700 sm:block"
+        >
+          {expandAll ? "收起 · 只看单日" : `展开全部 ${itinerary.days.length} 天`}
+        </button>
+      )}
+
+      {!expandAll && (
+        <div className="card-warm p-3 sm:p-5">
           <DayContent
-            day={itinerary.days[activeDay]}
+            day={itinerary.days[activeDay] ?? itinerary.days[0]}
             dayIndex={activeDay}
             onRefreshDay={onRefreshDay}
             refreshing={refreshingDay === activeDay}
@@ -345,24 +413,25 @@ export default function ItineraryView({
             travelers={travelers}
           />
         </div>
-      </div>
+      )}
 
-      {/* 桌面：全部展开 */}
-      <div className="hidden space-y-4 sm:block">
-        {itinerary.days.map((day, i) => (
-          <section key={day.day} className="card-warm p-5">
-            <DayContent
-              day={day}
-              dayIndex={i}
-              onRefreshDay={onRefreshDay}
-              refreshing={refreshingDay === i}
-              onReorderDay={onReorderDay}
-              reordering={reorderingDay === i}
-              travelers={travelers}
-            />
-          </section>
-        ))}
-      </div>
+      {expandAll && (
+        <div className="hidden space-y-4 sm:block">
+          {itinerary.days.map((day, i) => (
+            <section key={day.day} className="card-warm p-5">
+              <DayContent
+                day={day}
+                dayIndex={i}
+                onRefreshDay={onRefreshDay}
+                refreshing={refreshingDay === i}
+                onReorderDay={onReorderDay}
+                reordering={reorderingDay === i}
+                travelers={travelers}
+              />
+            </section>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

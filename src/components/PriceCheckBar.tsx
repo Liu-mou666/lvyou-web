@@ -33,9 +33,11 @@ const CONF_TEXT: Record<string, string> = {
 interface PriceCheckBarProps {
   poi: POI;
   travelers?: number;
+  /** 隐藏次要平台按钮（避免与上方重复） */
+  compact?: boolean;
 }
 
-export default function PriceCheckBar({ poi, travelers = 2 }: PriceCheckBarProps) {
+export default function PriceCheckBar({ poi, travelers = 2, compact = false }: PriceCheckBarProps) {
   const links = poi.links ?? [];
   const primary = pickPrimaryPriceAction(poi, links);
   const compareUrls = pickCompareUrls(poi, links);
@@ -95,7 +97,7 @@ export default function PriceCheckBar({ poi, travelers = 2 }: PriceCheckBarProps
         </div>
       )}
 
-      {compareUrls.length >= 2 && (
+      {compareUrls.length >= 2 && !compact && (
         <button
           type="button"
           onClick={openCompare}
@@ -105,7 +107,7 @@ export default function PriceCheckBar({ poi, travelers = 2 }: PriceCheckBarProps
         </button>
       )}
 
-      {secondary.length > 0 && (
+      {secondary.length > 0 && !compact && (
         <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
           {secondary.map((link, i) => (
             <a
