@@ -12,13 +12,16 @@ import {
   ctripActivitySearchUrl,
   ctripHotelMobileUrl,
   ctripHotelSearchUrl,
-  ctripTicketMobileUrl,
+  ctripSightCityUrl,
+  ctripTicketPcUrl,
   ctripTicketSearchUrl,
-  ctripUnifiedSearchUrl,
   dianpingSearchUrl,
   fliggyHotelSearchUrl,
+  fliggyPoiSearchUrl,
   getCtripCityId,
   meituanSearchUrl,
+  sanitizeHotelKeyword,
+  sanitizeSightKeyword,
 } from "../data/platform-urls";
 
 function nextDay(date: string): string {
@@ -87,18 +90,25 @@ export function buildPOILinks(
         },
       );
     } else {
+      const sightKw = sanitizeSightKeyword(shopName, city);
       links.push(
         {
           platform: "ctrip",
           label: "携程",
           action: "搜门票",
-          url: ctripTicketSearchUrl(city, shopName, ctripCityId),
+          url: ctripTicketPcUrl(city, shopName, ctripCityId),
         },
         {
           platform: "ctrip",
           label: "携程手机",
           action: "手机查门票",
-          url: ctripTicketMobileUrl(city, shopName, ctripCityId),
+          url: ctripTicketSearchUrl(city, shopName, ctripCityId),
+        },
+        {
+          platform: "fliggy",
+          label: "飞猪",
+          action: "搜门票",
+          url: fliggyPoiSearchUrl(sightKw),
         },
         {
           platform: "dianping",
@@ -107,10 +117,22 @@ export function buildPOILinks(
           url: dianpingSearchUrl(dpCityId, shopName),
         },
       );
+      if (ctripCityId) {
+        const cityList = ctripSightCityUrl(ctripCityId);
+        if (cityList) {
+          links.push({
+            platform: "ctrip",
+            label: "携程玩乐",
+            action: `${city}景点列表`,
+            url: cityList,
+          });
+        }
+      }
     }
   }
 
   if (poi.type === "hotel") {
+    const hotelKw = sanitizeHotelKeyword(shopName, city);
     links.push(
       {
         platform: "ctrip",
@@ -125,22 +147,16 @@ export function buildPOILinks(
         url: ctripHotelMobileUrl(city, shopName, checkIn, checkOut, ctripCityId),
       },
       {
-        platform: "ctrip",
-        label: "携程",
-        action: "站内搜酒店",
-        url: ctripUnifiedSearchUrl(`${city} ${shopName}`, "hotel"),
+        platform: "fliggy",
+        label: "飞猪",
+        action: `查${checkIn}房价`,
+        url: fliggyHotelSearchUrl(city, shopName, checkIn),
       },
       {
         platform: "dianping",
         label: "大众点评",
         action: "查看酒店",
         url: dianpingSearchUrl(dpCityId, shopName),
-      },
-      {
-        platform: "fliggy",
-        label: "飞猪",
-        action: `查${checkIn}房价`,
-        url: fliggyHotelSearchUrl(city, shopName, checkIn),
       },
     );
   }

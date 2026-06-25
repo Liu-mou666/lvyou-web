@@ -65,15 +65,26 @@ export function pickPrimaryPriceAction(poi: POI, links: import("../types").Platf
   const byPlatform = (p: string) => links.filter((l) => l.platform === p);
 
   if (poi.type === "hotel") {
-    const ctrip = links.find((l) => l.platform === "ctrip" && /房价|入住/.test(l.action));
-    if (ctrip) return { label: "携程查当晚房价", sublabel: "带入住日期搜索", url: ctrip.url, platform: "ctrip" };
+    const ctrip = links.find((l) => l.platform === "ctrip" && /房价|入住|searchWord|hotellist/.test(l.url + l.action));
+    if (ctrip) return { label: "携程查当晚房价", sublabel: "精确搜该酒店", url: ctrip.url, platform: "ctrip" };
     const fliggy = links.find((l) => l.platform === "fliggy");
     if (fliggy) return { label: "飞猪查房价", sublabel: "当日实价", url: fliggy.url, platform: "fliggy" };
   }
 
   if (poi.type === "attraction") {
-    const ticket = links.find((l) => l.platform === "ctrip" && /门票|景点/.test(l.label + l.action));
-    if (ticket) return { label: "携程查门票", sublabel: "当日售价/套餐", url: ticket.url, platform: "ctrip" };
+    const ticket = links.find(
+      (l) =>
+        (l.platform === "ctrip" && /门票|piao|ticket/.test(l.url + l.label + l.action)) ||
+        l.platform === "fliggy",
+    );
+    if (ticket) {
+      return {
+        label: ticket.platform === "fliggy" ? "飞猪查门票" : "携程查门票",
+        sublabel: "按景点名搜索",
+        url: ticket.url,
+        platform: ticket.platform,
+      };
+    }
     const amap = links.find((l) => l.platform === "amap" && l.action.includes("详情"));
     if (amap) return { label: "高德看详情", sublabel: "电话/营业时间/部分票价", url: amap.url, platform: "amap" };
   }
