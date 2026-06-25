@@ -346,6 +346,7 @@ async function buildTransferRoute(
 export async function buildOptimalTravelTickets(
   request: TripRequest,
   toCityInfo: CityInfo,
+  options?: { preview?: boolean },
 ): Promise<{
   trainRoutes: TrainRoute[];
   flightOption?: TrainRoute;
@@ -393,8 +394,9 @@ export async function buildOptimalTravelTickets(
       travelers,
     });
 
-    for (const cand of transfers.slice(0, 12)) {
-      const route = await buildTransferRoute(
+    const transferLimit = options?.preview ? 3 : 12;
+    const transferTasks = transfers.slice(0, transferLimit).map((cand) =>
+      buildTransferRoute(
         fromCandidates,
         toCandidates,
         date,
@@ -404,7 +406,10 @@ export async function buildOptimalTravelTickets(
         fromName,
         toName,
         seatPref,
-      );
+      ),
+    );
+    const transferResults = await Promise.all(transferTasks);
+    for (const route of transferResults) {
       if (route) trainRoutes.push(route);
     }
 

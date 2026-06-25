@@ -109,6 +109,7 @@ export async function buildPricePreview(input: {
   seatPref?: TripRequest["seatPref"];
   maxHotelPerNight?: number;
 }): Promise<PricePreviewResult> {
+  const run = async (): Promise<PricePreviewResult> => {
   const toCityInfo = await resolveCityInfo(input.city.trim());
   const req: TripRequest = {
     city: input.city.trim(),
@@ -127,7 +128,7 @@ export async function buildPricePreview(input: {
     maxHotelPerNight: input.maxHotelPerNight ?? 0,
   };
 
-  const transport = await buildOptimalTravelTickets(req, toCityInfo);
+  const transport = await buildOptimalTravelTickets(req, toCityInfo, { preview: true });
   let trainRoutes = transport.trainRoutes;
 
   if (input.preferDirectTrain) {
@@ -160,4 +161,12 @@ export async function buildPricePreview(input: {
     tickets,
     fetchedAt: new Date().toISOString(),
   };
+  };
+
+  const timeoutMs = 14_000;
+  const timeout = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error("查价超时，请点刷新或先生成行程")), timeoutMs);
+  });
+
+  return Promise.race([run(), timeout]);
 }

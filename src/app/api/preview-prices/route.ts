@@ -2,6 +2,8 @@ import { buildPricePreview } from "@/lib/apis/preview-prices";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+export const maxDuration = 25;
+
 const schema = z.object({
   departureCity: z.string().trim().min(1),
   city: z.string().trim().min(1),

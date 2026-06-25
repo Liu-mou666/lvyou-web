@@ -13,12 +13,37 @@ const CONF_STYLE: Record<string, string> = {
   none: "bg-warm-100 text-warm-muted",
 };
 
+const FETCH_TIMEOUT_MS = 16_000;
+
 interface PreTripPricePanelProps {
   state: TripFormState;
 }
 
 function canPreview(state: TripFormState): boolean {
   return state.departureCity.trim().length > 0 && state.city.trim().length > 0 && state.startDate.length > 0;
+}
+
+async function fetchPreview(payload: object): Promise<PricePreviewResult> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch("/api/preview-prices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error ?? "查价失败");
+    return json as PricePreviewResult;
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("查价超时，请点刷新重试或先点「生成行程」");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export default function PreTripPricePanel({ state }: PreTripPricePanelProps) {
@@ -56,21 +81,13 @@ export default function PreTripPricePanel({ state }: PreTripPricePanelProps) {
 
   const enabled = canPreview(state);
 
-  const { data, isFetching, error, refetch } = useQuery({
+  const { data, isFetching, error, refetch, isFetched } = useQuery({
     queryKey: ["preview-prices", payload],
-    queryFn: async () => {
-      const res = await fetch("/api/preview-prices", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "查价失败");
-      return json as PricePreviewResult;
-    },
+    queryFn: () => fetchPreview(payload),
     enabled,
     staleTime: 60_000,
     refetchOnWindowFocus: false,
+    retry: 1,
   });
 
   if (!enabled) {
@@ -80,7 +97,9 @@ export default function PreTripPricePanel({ state }: PreTripPricePanelProps) {
           <span className="text-2xl">🎫</span>
           <div>
             <p className="font-semibold text-warm-text">生成前先查价</p>
-            <p className="mt-1 text-xs text-warm-muted">填好出发地、目的地和日期后，自动查火车票价与必去景点门票</p>
+            <p className="mt-1 text-xs text-warm-muted">
+              填好出发地、目的地和日期后，自动查火车票价（全国任意城市）
+            </p>
           </div>
         </div>
       </div>
@@ -94,7 +113,8 @@ export default function PreTripPricePanel({ state }: PreTripPricePanelProps) {
           <h3 className="text-sm font-bold text-warm-text">实时查价预览</h3>
           <p className="mt-0.5 text-[11px] text-warm-muted">
             {state.departureCity} → {state.city} · {state.startDate} · {state.travelers}人
-            {data?.juheConfigured ? " · 12306 数据源已接入" : " · 未配 JUHE 则仅深链查票"}
+            {data?.routeDistanceKm ? ` · 约 ${data.routeDistanceKm} km` : ""}
+            {data?.juheConfigured ? " · 12306 已接入" : " · 深链查票"}
           </p>
         </div>
         <button
@@ -115,7 +135,7 @@ export default function PreTripPricePanel({ state }: PreTripPricePanelProps) {
 
       {data && (
         <div className="mt-3 space-y-4">
-          {data.recommendedTrain && (
+          {data.recommendedTrain ? (
             <div className="preview-train-highlight">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
@@ -170,6 +190,27 @@ export default function PreTripPricePanel({ state }: PreTripPricePanelProps) {
                 ))}
               </div>
             </div>
+          ) : (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              暂无铁路方案，可点下方携程链接查中转，或直接生成行程
+            </p>
+          )}
+
+          {data.flightOption && (data.routeDistanceKm ?? 0) >= 500 && (
+            <div className="rounded-lg border border-sky-200 bg-sky-50/80 px-3 py-2 text-xs text-sky-900">
+              <p className="font-semibold">长途可考虑飞机</p>
+              <p className="mt-1 text-sky-800">{data.flightOption.description}</p>
+              {data.flightOption.links[0] && (
+                <a
+                  href={data.flightOption.links[0].url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="preview-link-btn mt-2 inline-block"
+                >
+                  携程查航班
+                </a>
+              )}
+            </div>
           )}
 
           {data.tickets.length > 0 && (
@@ -217,14 +258,22 @@ export default function PreTripPricePanel({ state }: PreTripPricePanelProps) {
               </div>
             </details>
           )}
+
+          <p className="text-[10px] text-warm-muted">
+            更新于 {new Date(data.fetchedAt).toLocaleTimeString("zh-CN")} · 点左侧「生成智能行程」继续
+          </p>
         </div>
       )}
 
       {!data && isFetching && (
         <div className="mt-4 flex items-center gap-2 text-sm text-warm-muted">
           <span className="preview-spinner" />
-          正在查询火车与门票…
+          正在查询火车与门票…（约 5–15 秒）
         </div>
+      )}
+
+      {!data && !isFetching && isFetched && !error && (
+        <p className="mt-3 text-xs text-warm-muted">未返回查价结果，请点刷新重试</p>
       )}
     </div>
   );

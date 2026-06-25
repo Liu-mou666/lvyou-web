@@ -98,30 +98,38 @@ async function fetchJuheOnce(
   url.searchParams.set("arrival", toStation);
   url.searchParams.set("date", date);
 
-  const res = await fetch(url.toString(), { cache: "no-store" });
-  if (!res.ok) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4500);
+  try {
+    const res = await fetch(url.toString(), { cache: "no-store", signal: controller.signal });
+    if (!res.ok) return null;
 
-  const data = (await res.json()) as {
-    error_code?: number;
-    result?: { list?: JuheTrainRow[] };
-  };
+    const data = (await res.json()) as {
+      error_code?: number;
+      result?: { list?: JuheTrainRow[] };
+    };
 
-  if (data.error_code !== 0 || !data.result?.list?.length) return null;
+    if (data.error_code !== 0 || !data.result?.list?.length) return null;
 
-  const direct = data.result.list
-    .map((t) => mapJuheRow(t, fromStation, toStation, seatPref))
-    .filter((t): t is TrainSegment => t != null)
-    .sort((a, b) => a.priceSecond - b.priceSecond || a.durationMinutes - b.durationMinutes);
+    const direct = data.result.list
+      .map((t) => mapJuheRow(t, fromStation, toStation, seatPref))
+      .filter((t): t is TrainSegment => t != null)
+      .sort((a, b) => a.priceSecond - b.priceSecond || a.durationMinutes - b.durationMinutes);
 
-  if (!direct.length) return null;
+    if (!direct.length) return null;
 
-  return {
-    direct,
-    source: "聚合数据·12306",
-    fetchedAt: new Date().toISOString(),
-    queriedFrom: fromStation,
-    queriedTo: toStation,
-  };
+    return {
+      direct,
+      source: "聚合数据·12306",
+      fetchedAt: new Date().toISOString(),
+      queriedFrom: fromStation,
+      queriedTo: toStation,
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** 单对站名查询 */

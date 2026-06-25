@@ -180,9 +180,21 @@ export default function TripPlanner() {
                 {itinerary ? (
                   <span className="text-warm-muted"> · {itinerary.city}</span>
                 ) : (
-                  <span className="text-warm-muted"> · 智能攻略</span>
+                  <span className="text-warm-muted"> · 全国智能规划</span>
                 )}
               </h1>
+              {!itinerary && (
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {["任意城市", "12306火车", "深链实价", "拖拽改序"].map((tag) => (
+                    <span
+                      key={tag}
+                      className="rounded-full bg-warm-100 px-2 py-0.5 text-[10px] font-medium text-warm-600"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
             {itinerary && !loading && (
               <button
@@ -229,8 +241,16 @@ export default function TripPlanner() {
               )}
               {!loading && !error && !itinerary && (
                 <div className="card-warm border-dashed border-warm-300 bg-warm-100/40 p-6 text-center sm:p-8">
-                  <p className="font-medium text-warm-text">填写左侧参数，上方自动查火车与门票</p>
-                  <p className="mt-2 text-xs text-warm-muted">生成后可切换地图、行程、对比、榜单与预算 Tab</p>
+                  <p className="text-lg font-semibold text-warm-text">👇 填好左侧，点「生成智能行程」</p>
+                  <p className="mt-2 text-sm text-warm-muted">
+                    上方会先查 {formState.departureCity || "出发地"} → {formState.city || "目的地"} 的火车票价
+                  </p>
+                  <ul className="mx-auto mt-4 max-w-md space-y-1.5 text-left text-xs text-warm-muted">
+                    <li>✓ 全国任意城市（不限苏州/热门城）</li>
+                    <li>✓ 酒店按预算排序，经济连锁优先</li>
+                    <li>✓ 生成后可拖拽景点、按日刷新、三套方案对比</li>
+                    <li>✓ 携程真价爬取需本地 npm run dev + scrape:login</li>
+                  </ul>
                 </div>
               )}
               {itinerary && !loading && (
