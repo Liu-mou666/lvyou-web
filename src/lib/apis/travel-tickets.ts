@@ -1,6 +1,6 @@
 import { resolveCityInfo, type CityInfo } from "./city-resolver";
 import { buildTrainRecommendReason } from "../engine/recommend-text";
-import { hasJuheKey, isTrainLegVerified, juheEvidence, queryJuheTrainsMulti } from "../data/providers/train-juhe";
+import { hasJuheKey, isTrainLegVerified, juheEvidence, queryJuheTrainsMulti, segmentPriceForSeat } from "../data/providers/train-juhe";
 import {
   ctripFlightUrl,
   ctripTrainUrl,
@@ -20,7 +20,7 @@ import {
   lookupSegment,
   type TransferCandidate,
 } from "../engine/transport-graph";
-import type { Evidence, PlatformLink, TrainRoute, TripRequest } from "../types";
+import type { Evidence, PlatformLink, SeatPref, TrainRoute, TripRequest } from "../types";
 import { fetchDrivingRoute } from "./amap";
 
 interface RouteAnalysis {
@@ -62,10 +62,11 @@ async function legFromJuheMulti(
   toCandidates: RailStation[],
   date: string,
   travelers: number,
+  seatPref: SeatPref = "second",
 ): Promise<LegResult | null> {
   for (const fromSt of fromCandidates) {
     for (const toSt of toCandidates) {
-      const juhe = await queryJuheTrainsMulti(fromSt, toSt, date);
+      const juhe = await queryJuheTrainsMulti(fromSt, toSt, date, seatPref);
       if (!isTrainLegVerified(juhe)) continue;
 
       const best = juhe!.direct[0];
@@ -114,8 +115,9 @@ async function resolveLeg(
   toCandidates: RailStation[],
   date: string,
   travelers: number,
+  seatPref: SeatPref = "second",
 ): Promise<ResolvedLeg | null> {
-  const juhe = await legFromJuheMulti(fromCandidates, toCandidates, date, travelers);
+  const juhe = await legFromJuheMulti(fromCandidates, toCandidates, date, travelers, seatPref);
   if (juhe) {
     const best = juhe.juhe!.direct[0];
     return {
@@ -136,7 +138,7 @@ async function resolveLeg(
     for (const toSt of toCandidates) {
       const seg = lookupSegment(fromSt.name, toSt.name);
       if (!seg) continue;
-      const price = Math.round(seg.pricePerPerson * travelers);
+      const price = Math.round(segmentPriceForSeat(seg.pricePerPerson, seatPref) * travelers);
       const candidate: ResolvedLeg = {
         from: fromSt,
         to: toSt,
@@ -290,8 +292,9 @@ async function buildDirectRoute(
   toCandidates: RailStation[],
   date: string,
   travelers: number,
+  seatPref: SeatPref = "second",
 ): Promise<TrainRoute | null> {
-  const leg = await legFromJuheMulti(fromCandidates, toCandidates, date, travelers);
+  const leg = await legFromJuheMulti(fromCandidates, toCandidates, date, travelers, seatPref);
   if (!leg) return null;
 
   const best = leg.juhe!.direct[0];
@@ -330,10 +333,11 @@ async function buildTransferRoute(
   priority: TripRequest["priority"],
   fromName: string,
   toName: string,
+  seatPref: SeatPref = "second",
 ): Promise<TrainRoute | null> {
   const hub = cand.hub;
-  const leg1 = await resolveLeg(fromCandidates, [hub], date, travelers);
-  const leg2 = await resolveLeg([hub], toCandidates, date, travelers);
+  const leg1 = await resolveLeg(fromCandidates, [hub], date, travelers, seatPref);
+  const leg2 = await resolveLeg([hub], toCandidates, date, travelers, seatPref);
   if (!leg1 || !leg2) return null;
   return assembleTransferRoute(leg1, leg2, hub, date, travelers, cand, priority, fromName, toName);
 }
@@ -355,6 +359,7 @@ export async function buildOptimalTravelTickets(
   const date = request.startDate;
   const travelers = request.travelers ?? 2;
   const priority = request.priority ?? "value";
+  const seatPref = request.seatPref ?? "second";
 
   const fromCity = await resolveCityInfo(fromName);
   const routeInfo = await analyzeRoute(fromCity, toCityInfo);
@@ -378,7 +383,7 @@ export async function buildOptimalTravelTickets(
   const transportEvidence: Evidence[] = [];
 
   if (fromPrimary && toPrimary) {
-    const direct = await buildDirectRoute(fromCandidates, toCandidates, date, travelers);
+    const direct = await buildDirectRoute(fromCandidates, toCandidates, date, travelers, seatPref);
     if (direct) trainRoutes.push(direct);
 
     const hubs = getHubStations();
@@ -398,6 +403,7 @@ export async function buildOptimalTravelTickets(
         priority,
         fromName,
         toName,
+        seatPref,
       );
       if (route) trainRoutes.push(route);
     }

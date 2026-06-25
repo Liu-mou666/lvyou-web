@@ -63,9 +63,14 @@ export function parsePlanningConstraints(request: TripRequest): PlanningConstrai
   }
 
   const dietary: string[] = [];
-  if (/不吃辣|忌辣|无辣/.test(notes)) dietary.push("不辣");
-  if (/清真/.test(notes)) dietary.push("清真");
-  if (/素食|吃素/.test(notes)) dietary.push("素食");
+  if (/不吃辣|忌辣|无辣|微辣/.test(notes)) dietary.push("不辣");
+  if (/清真|回族/.test(notes)) dietary.push("清真");
+  if (/素食|吃素|全素/.test(notes)) dietary.push("素食");
+  if (request.dietary?.length) {
+    for (const d of request.dietary) {
+      if (!dietary.includes(d)) dietary.push(d);
+    }
+  }
 
   return {
     mustVisit: mustVisit.filter(Boolean),
@@ -88,6 +93,32 @@ export function poiMatchesName(poiName: string, target: string): boolean {
 export function filterExcluded(pois: import("../types").POI[], exclude: string[]): import("../types").POI[] {
   if (exclude.length === 0) return pois;
   return pois.filter((p) => !exclude.some((e) => poiMatchesName(p.name, e)));
+}
+
+const SPICY_HINT = /辣|川湘|麻辣|火锅|水煮|剁椒|香锅|串串|湘菜|川菜|贵州菜/;
+const HALAL_HINT = /清真|回族|兰州拉面|西北|新疆|牛羊肉/;
+const MEAT_HINT = /烤肉|牛排|海鲜|涮肉|烤鸭|烧腊|猪|牛|羊|鸡|鸭|鱼|虾|蟹|荤/;
+const VEG_HINT = /素|蔬|斋|豆腐|菌菇|沙拉|轻食/;
+
+/** 餐饮是否满足饮食约束 */
+export function matchesDietary(poi: import("../types").POI, dietary: string[]): boolean {
+  if (dietary.length === 0) return true;
+  const text = `${poi.name}${poi.signature ?? ""}${poi.description ?? ""}`;
+
+  if (dietary.includes("清真")) {
+    if (/猪|非清真|川湘|麻辣/.test(text)) return false;
+    if (HALAL_HINT.test(text)) return true;
+    return !MEAT_HINT.test(text) || HALAL_HINT.test(text);
+  }
+  if (dietary.includes("素食")) {
+    if (MEAT_HINT.test(text) && !VEG_HINT.test(text)) return false;
+    if (VEG_HINT.test(text)) return true;
+    return !MEAT_HINT.test(text);
+  }
+  if (dietary.includes("不辣")) {
+    if (SPICY_HINT.test(text)) return false;
+  }
+  return true;
 }
 
 /** 无障碍：过滤陡坡/索道等不适合轮椅的 POI */

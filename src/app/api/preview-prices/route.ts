@@ -12,6 +12,8 @@ const schema = z.object({
   departureStationMode: z.enum(["auto", "hsr", "classic"]).optional(),
   mustVisit: z.array(z.string()).optional(),
   preferDirectTrain: z.boolean().optional(),
+  seatPref: z.enum(["second", "first", "any"]).optional(),
+  maxHotelPerNight: z.number().min(0).optional(),
 });
 
 export async function POST(req: Request) {
@@ -33,6 +35,8 @@ export async function POST(req: Request) {
       departureStationMode: data.departureStationMode,
       mustVisit: data.mustVisit,
       preferDirectTrain: data.preferDirectTrain,
+      seatPref: data.seatPref,
+      maxHotelPerNight: data.maxHotelPerNight,
     });
 
     return NextResponse.json(preview);

@@ -7,6 +7,9 @@ interface TicketHint {
   keywords: string[];
   ticket: number;
   note: string;
+  peakTicket?: number;
+  offPeakTicket?: number;
+  peakMonths?: number[];
 }
 
 const DB = hints as TicketHint[];
@@ -15,8 +18,21 @@ function normalize(s: string): string {
   return s.replace(/\s/g, "").replace(/风景区|风景名胜区|景区|公园|博物馆/g, "");
 }
 
+/** 按出行日期解析淡旺季门票（苏州园林等） */
+export function resolveTicketPrice(hint: TicketHint, visitDate?: string): number {
+  if (!hint.peakTicket || !hint.offPeakTicket || !hint.peakMonths?.length || !visitDate) {
+    return hint.ticket;
+  }
+  const month = new Date(visitDate).getMonth() + 1;
+  return hint.peakMonths.includes(month) ? hint.peakTicket : hint.offPeakTicket;
+}
+
 /** 匹配景区公开窗口参考价（非 OTA 实时价） */
-export function lookupPublicTicketHint(poiName: string, cityName?: string): TicketHint | null {
+export function lookupPublicTicketHint(
+  poiName: string,
+  cityName?: string,
+  visitDate?: string,
+): (TicketHint & { resolvedTicket: number }) | null {
   const q = normalize(poiName);
   const city = cityName?.replace(/市$/g, "") ?? "";
 
@@ -38,22 +54,30 @@ export function lookupPublicTicketHint(poiName: string, cityName?: string): Tick
     }
   }
 
-  return bestScore >= 8 ? best : null;
+  if (bestScore < 8 || !best) return null;
+  const resolvedTicket = resolveTicketPrice(best, visitDate);
+  return { ...best, resolvedTicket };
 }
 
-export function applyPublicTicketHint(poi: POI, cityName?: string): POI {
+export function applyPublicTicketHint(poi: POI, cityName?: string, visitDate?: string): POI {
   if (poi.type !== "attraction" || poi.pricePerPerson > 0) return poi;
-  const hint = lookupPublicTicketHint(poi.name, cityName);
+  const hint = lookupPublicTicketHint(poi.name, cityName, visitDate);
   if (!hint) return poi;
 
-  const travelers = 2; // 仅补 per-person，cost 在 enrich 层乘人数
+  const travelers = 2;
+  const price = hint.resolvedTicket;
+  const seasonNote =
+    hint.peakTicket && hint.offPeakTicket
+      ? `本次按${price === hint.peakTicket ? "旺季" : "淡季"}计 ¥${price}`
+      : hint.note;
+
   return {
     ...poi,
-    pricePerPerson: hint.ticket,
-    cost: hint.ticket > 0 ? hint.ticket * travelers : 0,
-    freeAttraction: hint.ticket === 0,
+    pricePerPerson: price,
+    cost: price > 0 ? price * travelers : 0,
+    freeAttraction: price === 0,
     priceConfidence: "medium",
-    priceNote: `公开窗口参考 ¥${hint.ticket}/人（${hint.note}）· 请以携程/窗口当日为准`,
+    priceNote: `政府指导价参考 ¥${price}/人（${seasonNote}）· 非携程实时价，请点查价按钮核实`,
     evidence: [
       ...(poi.evidence ?? []),
       {
@@ -62,7 +86,7 @@ export function applyPublicTicketHint(poi: POI, cityName?: string): POI {
         sources: [
           {
             name: "公开窗口价库",
-            value: `¥${hint.ticket}/人 · ${hint.note}`,
+            value: `¥${price}/人 · ${seasonNote}`,
             fetchedAt: new Date().toISOString(),
           },
         ],

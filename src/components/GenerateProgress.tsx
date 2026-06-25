@@ -25,7 +25,7 @@ function stepIndex(step: string): number {
   return idx >= 0 ? idx : 0;
 }
 
-export default function GenerateProgress({ progress, compact }: GenerateProgressProps) {
+export default function GenerateProgress({ progress, compact, onCancel }: GenerateProgressProps & { onCancel?: () => void }) {
   const current = stepIndex(progress.step);
   const pct = Math.min(100, Math.max(0, progress.percent));
 
@@ -34,7 +34,14 @@ export default function GenerateProgress({ progress, compact }: GenerateProgress
       <div className="rounded-xl border border-warm-200 bg-warm-50/80 px-3 py-2">
         <div className="flex items-center justify-between gap-2 text-xs">
           <span className="font-medium text-warm-text">{progress.message}</span>
-          <span className="tabular-nums text-warm-muted">{pct}%</span>
+          <div className="flex items-center gap-2">
+            <span className="tabular-nums text-warm-muted">{pct}%</span>
+            {onCancel && (
+              <button type="button" onClick={onCancel} className="rounded-md border border-warm-300 px-2 py-0.5 text-warm-700">
+                取消
+              </button>
+            )}
+          </div>
         </div>
         <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-warm-200">
           <motion.div
@@ -59,9 +66,20 @@ export default function GenerateProgress({ progress, compact }: GenerateProgress
           <h3 className="text-base font-semibold text-warm-text">正在生成行程</h3>
           <p className="mt-1 text-sm text-warm-muted">{progress.message}</p>
         </div>
-        <span className="shrink-0 rounded-lg bg-warm-glow px-2.5 py-1 text-sm font-bold tabular-nums text-warm-600">
-          {pct}%
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="rounded-lg bg-warm-glow px-2.5 py-1 text-sm font-bold tabular-nums text-warm-600">
+            {pct}%
+          </span>
+          {onCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="rounded-lg border border-warm-300 px-3 py-1 text-xs font-medium text-warm-700"
+            >
+              取消
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="mt-4 h-2 overflow-hidden rounded-full bg-warm-200">

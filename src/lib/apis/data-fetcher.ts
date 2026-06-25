@@ -8,6 +8,7 @@ import {
 import { resolveCityInfo, type CityInfo } from "./city-resolver";
 import { enrichPOIVerified } from "./platform-scraper";
 import { authorityBonus, matchAuthorityTag } from "../data/authority-lists";
+import { matchesDietary } from "../engine/constraint-parser";
 import type { BudgetLevel, MealPref, MealTime, POI, POIType, RankedAttraction, TravelStyle, WeatherForecast } from "../types";
 import { rankAttractions, type AttractionRankContext } from "../engine/poi-ranker";
 import scenicList from "@/data/scenic-5a.json";
@@ -121,11 +122,13 @@ function isQualityRestaurant(
   mealTime: MealTime,
   mealPref?: MealPref,
   budget?: BudgetLevel,
+  dietary?: string[],
 ): boolean {
   const maxPrice = MAX_MEAL_PER_PERSON[budget ?? "moderate"];
   if (poi.rating < 4.3) return false;
   if (isChainRestaurant(poi.name)) return false;
   if (poi.pricePerPerson > maxPrice) return false;
+  if (dietary?.length && !matchesDietary(poi, dietary)) return false;
 
   const text = `${poi.name}${poi.signature ?? ""}${poi.description}`;
   if (JUNK_NAME.test(poi.name)) return false;
@@ -134,7 +137,13 @@ function isQualityRestaurant(
   return true;
 }
 
-function getMealKeywords(cityName: string, mealTime: MealTime, mealPref?: MealPref, budget?: BudgetLevel): string[] {
+function getMealKeywords(
+  cityName: string,
+  mealTime: MealTime,
+  mealPref?: MealPref,
+  budget?: BudgetLevel,
+  dietary?: string[],
+): string[] {
   const city = cityName.replace(/市|区|县$/, "");
   const local = CITY_CUISINE[city] ?? CITY_CUISINE[cityName] ?? [];
   const base =
@@ -144,10 +153,15 @@ function getMealKeywords(cityName: string, mealTime: MealTime, mealPref?: MealPr
         ? ["特色餐厅", "本地菜", "人气餐厅"]
         : ["特色餐厅", "本地菜", "老字号"];
 
-  if (budget === "budget") return [...local.slice(0, 2), "家常菜", "小吃"];
-  if (mealPref === "local" && local.length > 0) return [...local, ...base.slice(0, 1)];
-  if (mealPref === "fast") return ["快餐", "简餐"];
-  return [...base, ...local.slice(0, 1)];
+  const dietaryKw: string[] = [];
+  if (dietary?.includes("清真")) dietaryKw.push("清真", "西北菜");
+  if (dietary?.includes("素食")) dietaryKw.push("素食", "素菜馆", "轻食");
+  if (dietary?.includes("不辣")) dietaryKw.push("本帮菜", "粤菜", "苏帮菜");
+
+  if (budget === "budget") return [...dietaryKw, ...local.slice(0, 2), "家常菜", "小吃"];
+  if (mealPref === "local" && local.length > 0) return [...dietaryKw, ...local, ...base.slice(0, 1)];
+  if (mealPref === "fast") return [...dietaryKw, "快餐", "简餐"];
+  return [...dietaryKw, ...base, ...local.slice(0, 1)];
 }
 
 function isLikelyFreeAttraction(name: string, poiType: string): boolean {
@@ -279,6 +293,7 @@ export async function fetchHotelsNearLocation(
     totalBudget?: number;
     days?: number;
     travelers?: number;
+    maxHotelPerNight?: number;
   },
 ): Promise<POI[]> {
   const priority = opts?.priority ?? "value";
@@ -288,6 +303,11 @@ export async function fetchHotelsNearLocation(
 
   let maxNight = MAX_HOTEL_NIGHT[budget];
   let minNight = MIN_HOTEL_NIGHT[budget];
+
+  if (opts?.maxHotelPerNight && opts.maxHotelPerNight > 0) {
+    maxNight = Math.min(maxNight, opts.maxHotelPerNight);
+    minNight = Math.min(minNight, Math.round(opts.maxHotelPerNight * 0.75));
+  }
 
   if (totalBudget > 0 && days > 0) {
     const perPersonDay = totalBudget / days / Math.max(travelers, 1);
@@ -563,20 +583,24 @@ export async function fetchNearbyRestaurants(
   limit: number,
   mealPref?: MealPref,
   budget?: BudgetLevel,
+  dietary?: string[],
 ): Promise<POI[]> {
-  const keywords = getMealKeywords(cityInfo.name, mealTime, mealPref, budget);
+  const keywords = getMealKeywords(cityInfo.name, mealTime, mealPref, budget, dietary);
   const all: POI[] = [];
 
   for (const kw of keywords) {
     const pois = await searchAround({ location, keywords: kw, types: "050000", radius: 3500 });
     for (const p of pois) {
       const mapped = amapToPOI(p, "restaurant", "food", cityInfo.name, mealTime, budget);
-      if (mapped && isQualityRestaurant(mapped, mealTime, mealPref, budget)) all.push(mapped);
+      if (mapped && isQualityRestaurant(mapped, mealTime, mealPref, budget, dietary)) all.push(mapped);
     }
   }
 
   const ranked = dedupePOIs(all)
-    .sort((a, b) => mealValueScore(b) - mealValueScore(a))
+    .sort((a, b) => {
+      const dietBoost = (p: POI) => (dietary?.length && matchesDietary(p, dietary) ? 5 : 0);
+      return mealValueScore(b) + dietBoost(b) - (mealValueScore(a) + dietBoost(a));
+    })
     .slice(0, limit + 3);
 
   const verified: POI[] = [];

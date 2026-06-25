@@ -30,6 +30,7 @@ async function previewTicketForName(
   cityName: string,
   adcode: string,
   travelers: number,
+  visitDate: string,
 ): Promise<TicketPreviewItem> {
   const city = cityName.replace(/市$/g, "");
   const ctripCityId = getCtripCityId(adcode);
@@ -53,12 +54,16 @@ async function previewTicketForName(
   let note = "暂无参考价，请点链接查平台实价";
   let free = false;
 
-  const hint = lookupPublicTicketHint(name, cityName);
+  const hint = lookupPublicTicketHint(name, cityName, visitDate);
   if (hint) {
-    pricePerPerson = hint.ticket;
-    free = hint.ticket === 0;
+    pricePerPerson = hint.resolvedTicket;
+    free = hint.resolvedTicket === 0;
     confidence = "medium";
-    note = `公开窗口参考 ¥${hint.ticket}/人 · ${hint.note}`;
+    const season =
+      hint.peakTicket && hint.offPeakTicket
+        ? `按${hint.resolvedTicket === hint.peakTicket ? "旺季" : "淡季"}`
+        : "";
+    note = `政府指导价 ${season} ¥${hint.resolvedTicket}/人 · ${hint.note}`;
   }
 
   try {
@@ -101,6 +106,8 @@ export async function buildPricePreview(input: {
   departureStationMode?: TripRequest["departureStationMode"];
   mustVisit?: string[];
   preferDirectTrain?: boolean;
+  seatPref?: TripRequest["seatPref"];
+  maxHotelPerNight?: number;
 }): Promise<PricePreviewResult> {
   const toCityInfo = await resolveCityInfo(input.city.trim());
   const req: TripRequest = {
@@ -116,6 +123,8 @@ export async function buildPricePreview(input: {
     totalBudget: input.totalBudget ?? 0,
     departureStationMode: input.departureStationMode ?? "auto",
     preferDirectTrain: input.preferDirectTrain ?? false,
+    seatPref: input.seatPref ?? "second",
+    maxHotelPerNight: input.maxHotelPerNight ?? 0,
   };
 
   const transport = await buildOptimalTravelTickets(req, toCityInfo);
@@ -138,7 +147,7 @@ export async function buildPricePreview(input: {
   const mustNames = [...new Set(input.mustVisit?.filter(Boolean) ?? [])];
   const tickets = await Promise.all(
     mustNames.map((name) =>
-      previewTicketForName(name, toCityInfo.name, toCityInfo.adcode, input.travelers),
+      previewTicketForName(name, toCityInfo.name, toCityInfo.adcode, input.travelers, input.startDate),
     ),
   );
 

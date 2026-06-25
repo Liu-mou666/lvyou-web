@@ -43,7 +43,7 @@ function tabDisabled(itinerary: Itinerary | null, loading: boolean): Partial<Rec
 }
 
 export default function TripPlanner() {
-  const { generate, loading, progress, itinerary, error, setItinerary, setError } = useGenerateStream();
+  const { generate, cancel, loading, progress, itinerary, error, setItinerary, setError } = useGenerateStream();
   const { history, save, remove, exportJson } = useItineraryHistory();
   const [activeTab, setActiveTab] = useState<AppTab>("plan");
   const [lastRequest, setLastRequest] = useState<TripRequest | null>(null);
@@ -81,7 +81,11 @@ export default function TripPlanner() {
       const res = await fetch("/api/refresh", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...lastRequest, dayIndex }),
+        body: JSON.stringify({
+          ...lastRequest,
+          dayIndex,
+          existingDay: itinerary?.days[dayIndex],
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "刷新失败");
@@ -213,7 +217,7 @@ export default function TripPlanner() {
             </div>
             <div className="space-y-4 lg:col-span-7">
               <PreTripPricePanel state={formState} />
-              {loading && progress && <GenerateProgress progress={progress} />}
+              {loading && progress && <GenerateProgress progress={progress} onCancel={cancel} />}
               {loading && itinerary && itinerary.days.some((d) => d.items.length > 0) && (
                 <MapView itinerary={itinerary} />
               )}
@@ -253,7 +257,7 @@ export default function TripPlanner() {
         {activeTab === "itinerary" && itinerary && (
           <ItineraryView
             itinerary={itinerary}
-            mode="days-only"
+            mode="compact"
             onRefreshDay={(i) => refreshDayMutation.mutate(i)}
             refreshingDay={refreshingDay}
             onReorderDay={async (dayIndex, attractionIds) => {
@@ -300,7 +304,7 @@ export default function TripPlanner() {
 
         {loading && activeTab !== "plan" && progress && (
           <div className="mt-4">
-            <GenerateProgress progress={progress} compact />
+            <GenerateProgress progress={progress} compact onCancel={cancel} />
           </div>
         )}
       </main>

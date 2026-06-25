@@ -10,6 +10,7 @@ import {
 import { buildOptimalTravelTickets } from "./apis/travel-tickets";
 import { buildPoiRecommendNote } from "./engine/recommend-text";
 import { parsePlanningConstraints, filterExcluded, filterAccessibility } from "./engine/constraint-parser";
+import { enrichPOIVerified } from "./apis/platform-scraper";
 import { clusterDistributeAttractions } from "./engine/geo-cluster";
 import { auditItineraryPrices } from "./engine/price-audit";
 import type { CityInfo } from "./apis/city-resolver";
@@ -144,6 +145,7 @@ async function pickMealNearby(
   ctx: RealtimeContext,
   request: TripRequest,
   usedIds: Set<string>,
+  dietary: string[] = [],
 ): Promise<{ poi: POI; realtime: RealtimeMetrics; alternatives: POI[]; recommendNote: string } | null> {
   const nearby = await fetchNearbyRestaurants(
     `${near.lng},${near.lat}`,
@@ -152,6 +154,7 @@ async function pickMealNearby(
     12,
     request.mealPref,
     request.budget,
+    dietary,
   );
   const pool = nearby.filter((r) => !usedIds.has(r.id));
   const ranked = rankPOIs(pool.length > 0 ? pool : nearby, ctx, near, { limit: 5, minScore: 10, cityName: cityInfo.name });
@@ -173,8 +176,10 @@ async function buildDayPlan(
   cityInfo: CityInfo,
   request: TripRequest,
   specialPOIs: POI[] = [],
+  opts?: { preserveOrder?: boolean; dietary?: string[] },
 ): Promise<DayPlan> {
   const travelers = request.travelers ?? 2;
+  const dietary = opts?.dietary ?? parsePlanningConstraints(request).dietary;
   const rainy = weather.condition === "rainy";
   const items: TimelineItem[] = [];
   const usedRestaurantIds = new Set<string>();
@@ -191,7 +196,9 @@ async function buildDayPlan(
   let walkKmToday = 0;
 
   const objective: PlanObjective = objectiveFromPriority(request.priority);
-  const dayAttractions = optimizeRouteWithTimeWindows([...attractions], objective);
+  const dayAttractions = opts?.preserveOrder
+    ? attractions
+    : optimizeRouteWithTimeWindows([...attractions], objective);
   const anchor = dayAttractions[0] ?? attractions[0];
   if (!anchor) {
     return {
@@ -206,7 +213,7 @@ async function buildDayPlan(
   }
 
   const breakfastCtx = makeCtx(request, date, weather, minutesToTime(currentMinutes));
-  const breakfast = await pickMealNearby("breakfast", anchor, cityInfo, breakfastCtx, request, usedRestaurantIds);
+  const breakfast = await pickMealNearby("breakfast", anchor, cityInfo, breakfastCtx, request, usedRestaurantIds, dietary);
   if (breakfast) {
     usedRestaurantIds.add(breakfast.poi.id);
     currentMinutes = addVisitOrMeal(
@@ -248,7 +255,7 @@ async function buildDayPlan(
     if (i === 1 || (i === 0 && dayAttractions.length === 1)) {
       const lunchNear = lastLocation ?? attraction;
       const lunchCtx = makeCtx(request, date, weather, "12:00");
-      const lunch = await pickMealNearby("lunch", lunchNear, cityInfo, lunchCtx, request, usedRestaurantIds);
+      const lunch = await pickMealNearby("lunch", lunchNear, cityInfo, lunchCtx, request, usedRestaurantIds, dietary);
       if (lunch) {
         if (lastLocation) {
           const tr = await addTransport(
@@ -284,7 +291,7 @@ async function buildDayPlan(
 
   if (lastLocation) {
     const dinnerCtx = makeCtx(request, date, weather, "18:30");
-    const dinner = await pickMealNearby("dinner", lastLocation, cityInfo, dinnerCtx, request, usedRestaurantIds);
+    const dinner = await pickMealNearby("dinner", lastLocation, cityInfo, dinnerCtx, request, usedRestaurantIds, dietary);
     if (dinner) {
       const tr = await addTransport(
         items, lastLocation, dinner.poi, Math.max(currentMinutes, 18 * 60 + 30), cityInfo.name, travelers, rainy, transportPref, maxWalkKm, walkKmToday,
@@ -314,6 +321,7 @@ async function buildDayPlan(
         totalBudget: request.totalBudget,
         days: request.days,
         travelers,
+        maxHotelPerNight: request.maxHotelPerNight,
       },
     );
     if (hotels.length > 0) {
@@ -722,10 +730,41 @@ export async function generateItineraryWithProgress(
   }
 }
 
-export async function refreshDayItinerary(request: TripRequest, dayIndex: number): Promise<DayPlan | null> {
+export async function refreshDayItinerary(
+  request: TripRequest,
+  dayIndex: number,
+  existingDay?: DayPlan,
+): Promise<DayPlan | null> {
   const cityInfo = await resolveCityInfo(request.city);
   const forecasts = await fetchRealWeatherForecast(cityInfo, request.startDate, request.days);
   if (dayIndex >= forecasts.length) return null;
+
+  const dietary = parsePlanningConstraints(request).dietary;
+  const forecast = forecasts[dayIndex];
+
+  if (existingDay?.items?.length) {
+    const visitPois = existingDay.items
+      .filter((i) => i.kind === "visit" && i.poi)
+      .map((i) => i.poi!);
+    if (visitPois.length > 0) {
+      const travelers = request.travelers ?? 2;
+      const refreshed = await Promise.all(
+        visitPois.map((p) =>
+          enrichPOIVerified(p, cityInfo, { travelers, checkIn: forecast.date }),
+        ),
+      );
+      return buildDayPlan(
+        dayIndex,
+        forecast.date,
+        forecast,
+        refreshed,
+        cityInfo,
+        request,
+        [],
+        { preserveOrder: true, dietary },
+      );
+    }
+  }
 
   const pace = effectivePace(request);
   const perDay = PACE_ATTRACTIONS[pace];
@@ -738,7 +777,7 @@ export async function refreshDayItinerary(request: TripRequest, dayIndex: number
 
   if (dayAttractions.length === 0) return null;
 
-  return buildDayPlan(dayIndex, forecasts[dayIndex].date, forecasts[dayIndex], dayAttractions, cityInfo, request, specialPOIs);
+  return buildDayPlan(dayIndex, forecast.date, forecast, dayAttractions, cityInfo, request, specialPOIs, { dietary });
 }
 
 /** 按用户指定景点顺序重算单日（拖拽改序） */
@@ -752,8 +791,12 @@ export async function reoptimizeDayItinerary(
   const needed = request.days * PACE_ATTRACTIONS[effectivePace(request)] + 12;
   const { pool } = await buildAttractionPool(request, cityInfo, needed);
 
+  const templateVisits = templateDay.items
+    .filter((i) => i.kind === "visit" && i.poi)
+    .map((i) => i.poi!);
+
   const ordered = attractionIds
-    .map((id) => pool.find((p) => p.id === id))
+    .map((id) => pool.find((p) => p.id === id) ?? templateVisits.find((p) => p.id === id))
     .filter((p): p is POI => p != null);
 
   if (ordered.length === 0) return null;

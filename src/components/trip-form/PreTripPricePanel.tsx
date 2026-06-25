@@ -36,6 +36,8 @@ export default function PreTripPricePanel({ state }: PreTripPricePanelProps) {
         .map((s) => s.trim())
         .filter(Boolean),
       preferDirectTrain: state.preferDirectTrain,
+      seatPref: state.seatPref,
+      maxHotelPerNight: state.maxHotelPerNight,
     }),
     [
       state.departureCity,
@@ -47,6 +49,8 @@ export default function PreTripPricePanel({ state }: PreTripPricePanelProps) {
       state.departureStationMode,
       state.mustVisitText,
       state.preferDirectTrain,
+      state.seatPref,
+      state.maxHotelPerNight,
     ],
   );
 

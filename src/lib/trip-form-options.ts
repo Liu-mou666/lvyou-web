@@ -72,6 +72,12 @@ export const SEAT_PREFS: { value: SeatPref; label: string; desc: string }[] = [
   { value: "any", label: "不限", desc: "有票优先" },
 ];
 
+export const DIETARY_OPTS: { value: "不辣" | "清真" | "素食"; label: string }[] = [
+  { value: "不辣", label: "不吃辣" },
+  { value: "清真", label: "清真" },
+  { value: "素食", label: "素食" },
+];
+
 export const STRATEGY_PRESETS: {
   id: string;
   label: string;
@@ -91,6 +97,7 @@ export const STRATEGY_PRESETS: {
     preferDirectTrain: boolean;
     dayStart: DayStartPref;
     maxWalkKmPerDay: number;
+    maxHotelPerNight: number;
   }>;
 }[] = [
   {
@@ -118,6 +125,7 @@ export const STRATEGY_PRESETS: {
       budget: "budget",
       transportPref: "transit",
       preferDirectTrain: true,
+      maxHotelPerNight: 120,
     },
   },
   {

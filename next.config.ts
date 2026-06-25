@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
     mcpServer: false,
   },
   logging: false,
+  serverExternalPackages: ["playwright"],
 };
 
 export default nextConfig;

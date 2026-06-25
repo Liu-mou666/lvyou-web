@@ -46,6 +46,10 @@ export interface TripRequest {
   preferDirectTrain?: boolean;
   /** 单景点门票上限（元/人，0=不限） */
   maxTicketPerPerson?: number;
+  /** 饮食约束 */
+  dietary?: ("不辣" | "清真" | "素食")[];
+  /** 每晚住宿上限（元/晚，0=自动按预算推算） */
+  maxHotelPerNight?: number;
 }
 
 export interface Location {

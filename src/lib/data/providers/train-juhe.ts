@@ -1,4 +1,4 @@
-import type { Evidence } from "@/lib/types";
+import type { Evidence, SeatPref } from "@/lib/types";
 import { stationQueryNames, type RailStation } from "../../data/station-db";
 
 export interface TrainSegment {
@@ -40,12 +40,34 @@ function parseDuration(runTime: string): number {
   return (rh || 0) * 60 + (rm || 0);
 }
 
-function mapJuheRow(t: JuheTrainRow, fromStation: string, toStation: string): TrainSegment | null {
-  const second =
-    t.prices?.find((p) => p.seat_type?.includes("二等")) ??
-    t.prices?.find((p) => p.seat_type?.includes("硬座")) ??
-    t.prices?.[0];
-  const priceSecond = parseFloat(second?.price ?? "0") || 0;
+function pickSeatPrice(
+  prices: JuheTrainRow["prices"],
+  seatPref: SeatPref = "second",
+): NonNullable<JuheTrainRow["prices"]>[number] | null {
+  if (!prices?.length) return null;
+  const withPrice = prices.filter((p) => parseFloat(p.price ?? "0") > 0);
+  if (!withPrice.length) return null;
+
+  const match = (patterns: RegExp[]) =>
+    withPrice.find((p) => patterns.some((re) => re.test(p.seat_type ?? "")));
+
+  if (seatPref === "first") {
+    return match([/一等/, /商务/, /软卧/, /动卧/]) ?? match([/二等/, /硬座/]) ?? withPrice[0];
+  }
+  if (seatPref === "second") {
+    return match([/二等/, /硬座/, /无座/]) ?? match([/一等/]) ?? withPrice[0];
+  }
+  return [...withPrice].sort((a, b) => parseFloat(a.price ?? "0") - parseFloat(b.price ?? "0"))[0];
+}
+
+function mapJuheRow(
+  t: JuheTrainRow,
+  fromStation: string,
+  toStation: string,
+  seatPref: SeatPref = "second",
+): TrainSegment | null {
+  const seat = pickSeatPrice(t.prices, seatPref);
+  const priceSecond = parseFloat(seat?.price ?? "0") || 0;
   if (priceSecond <= 0 || !t.departure_time || !t.arrival_time) return null;
 
   return {
@@ -56,12 +78,17 @@ function mapJuheRow(t: JuheTrainRow, fromStation: string, toStation: string): Tr
     arriveTime: t.arrival_time,
     durationMinutes: parseDuration(t.run_time ?? "0:0"),
     priceSecond,
-    seatType: second?.seat_type ?? "二等座",
-    ticketLeft: second?.num,
+    seatType: seat?.seat_type ?? "二等座",
+    ticketLeft: seat?.num,
   };
 }
 
-async function fetchJuheOnce(fromStation: string, toStation: string, date: string): Promise<TrainQueryResult | null> {
+async function fetchJuheOnce(
+  fromStation: string,
+  toStation: string,
+  date: string,
+  seatPref: SeatPref = "second",
+): Promise<TrainQueryResult | null> {
   const key = getJuheKey();
   if (!key) return null;
 
@@ -82,9 +109,9 @@ async function fetchJuheOnce(fromStation: string, toStation: string, date: strin
   if (data.error_code !== 0 || !data.result?.list?.length) return null;
 
   const direct = data.result.list
-    .map((t) => mapJuheRow(t, fromStation, toStation))
+    .map((t) => mapJuheRow(t, fromStation, toStation, seatPref))
     .filter((t): t is TrainSegment => t != null)
-    .sort((a, b) => a.priceSecond - b.priceSecond);
+    .sort((a, b) => a.priceSecond - b.priceSecond || a.durationMinutes - b.durationMinutes);
 
   if (!direct.length) return null;
 
@@ -102,9 +129,10 @@ export async function queryJuheTrains(
   fromStation: string,
   toStation: string,
   date: string,
+  seatPref: SeatPref = "second",
 ): Promise<TrainQueryResult | null> {
   try {
-    return await fetchJuheOnce(fromStation, toStation, date);
+    return await fetchJuheOnce(fromStation, toStation, date, seatPref);
   } catch {
     return null;
   }
@@ -115,17 +143,24 @@ export async function queryJuheTrainsMulti(
   fromSt: RailStation,
   toSt: RailStation,
   date: string,
+  seatPref: SeatPref = "second",
 ): Promise<TrainQueryResult | null> {
   const fromNames = stationQueryNames(fromSt);
   const toNames = stationQueryNames(toSt);
 
   for (const from of fromNames) {
     for (const to of toNames) {
-      const result = await queryJuheTrains(from, to, date);
+      const result = await queryJuheTrains(from, to, date, seatPref);
       if (result) return result;
     }
   }
   return null;
+}
+
+/** 区段参考价按席别调整 */
+export function segmentPriceForSeat(basePrice: number, seatPref: SeatPref = "second"): number {
+  if (seatPref === "first") return Math.round(basePrice * 1.65);
+  return basePrice;
 }
 
 export function isTrainLegVerified(juhe?: TrainQueryResult | null): boolean {

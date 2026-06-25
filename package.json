@@ -3,12 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "npm run serve",
-    "serve": "next build --webpack && next start -p 3000",
     "dev:hot": "next dev --webpack --no-server-fast-refresh",
+    "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "npx tsx --test src/lib/__tests__/*.test.ts",
+    "scrape:test": "npx tsx scripts/test-ota-scrape.ts",
+    "scrape:login": "npx tsx scripts/scrape-login.ts",
+    "setup:ota": "npx tsx scripts/setup-ota.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.1",
@@ -27,6 +30,10 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
     "tailwindcss": "^4",
+    "tsx": "^4.19.4",
     "typescript": "^5"
+  },
+  "optionalDependencies": {
+    "playwright": "^1.61.1"
   }
 }

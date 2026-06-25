@@ -4,7 +4,7 @@ import { z } from "zod";
 export const tripRequestSchema = z.object({
   city: z.string().trim().min(1, "请输入目的地"),
   departureCity: z.string().trim().optional(),
-  days: z.number().int().min(1).max(7),
+  days: z.number().int().min(1).max(14),
   style: z.enum(["culture", "food", "nature", "shopping", "mixed"]),
   pace: z.enum(["relaxed", "normal", "intense"]),
   budget: z.enum(["budget", "moderate", "luxury"]),
@@ -28,6 +28,8 @@ export const tripRequestSchema = z.object({
   seatPref: z.enum(["second", "first", "any"]).optional(),
   preferDirectTrain: z.boolean().optional(),
   maxTicketPerPerson: z.number().min(0).optional(),
+  dietary: z.array(z.enum(["不辣", "清真", "素食"])).optional(),
+  maxHotelPerNight: z.number().min(0).max(2000).optional(),
 });
 
 export function normalizeTripRequest(data: z.infer<typeof tripRequestSchema>) {
@@ -62,6 +64,8 @@ export function buildTripRequest(data: z.infer<typeof tripRequestSchema>): impor
     seatPref: n.seatPref ?? "second",
     preferDirectTrain: n.preferDirectTrain ?? false,
     maxTicketPerPerson: n.maxTicketPerPerson ?? 0,
+    dietary: n.dietary?.filter(Boolean),
+    maxHotelPerNight: n.maxHotelPerNight ?? 0,
   };
 }
 

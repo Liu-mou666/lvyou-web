@@ -14,59 +14,13 @@ import { useEffect, useState } from "react";
 
 interface ItineraryViewProps {
   itinerary: Itinerary;
-  /** full：含预算/交通/榜单；days-only：仅摘要与每日行程 */
-  mode?: "full" | "days-only";
+  /** full：含预算/交通/榜单；compact：行程Tab精简摘要；days-only：仅每日 */
+  mode?: "full" | "days-only" | "compact";
   onRefreshDay?: (dayIndex: number) => void;
   refreshingDay?: number | null;
   onReorderDay?: (dayIndex: number, attractionIds: string[]) => Promise<void>;
   reorderingDay?: number | null;
   travelers?: number;
-}
-
-const PLATFORM_COLORS: Record<string, string> = {
-  amap: "bg-blue-50 text-blue-700 border-blue-200",
-  dianping: "bg-orange-50 text-orange-700 border-orange-200",
-  meituan: "bg-yellow-50 text-yellow-800 border-yellow-200",
-  ctrip: "bg-sky-50 text-sky-700 border-sky-200",
-  fliggy: "bg-purple-50 text-purple-700 border-purple-200",
-};
-
-function PlatformButtons({ item }: { item: TimelineItem }) {
-  if (!item.poi?.links?.length) return null;
-  return (
-    <div className="mt-3 grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
-      {item.poi.links.map((link, i) => (
-        <a
-          key={`${link.platform}-${i}`}
-          href={link.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={`flex min-h-[44px] items-center justify-center rounded-xl border px-3 py-2.5 text-xs font-medium active:opacity-80 sm:inline-flex sm:min-h-0 sm:py-1.5 ${PLATFORM_COLORS[link.platform] ?? "bg-warm-50 text-warm-text border-warm-200"}`}
-        >
-          {link.label} · {link.action} →
-        </a>
-      ))}
-    </div>
-  );
-}
-
-function POILinks({ poi }: { poi: POI }) {
-  if (!poi.links?.length) return null;
-  return (
-    <div className="mt-3 grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
-      {poi.links.map((link, i) => (
-        <a
-          key={`${link.platform}-${i}`}
-          href={link.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={`flex min-h-[44px] items-center justify-center rounded-xl border px-3 py-2.5 text-xs font-medium active:opacity-80 sm:inline-flex sm:min-h-0 sm:py-1.5 ${PLATFORM_COLORS[link.platform] ?? "bg-warm-50 border-warm-200 text-warm-text"}`}
-        >
-          {link.label} · {link.action} →
-        </a>
-      ))}
-    </div>
-  );
 }
 
 function DayNavigator({
@@ -273,7 +227,7 @@ function DayContent({
                 onClick={() => onRefreshDay(dayIndex)}
                 className="rounded-lg border border-warm-300 bg-white px-2.5 py-1.5 text-[11px] font-medium text-warm-700 disabled:opacity-50"
               >
-                {refreshing ? "刷新中…" : "刷新本日"}
+                {refreshing ? "刷新中…" : "更新价格"}
               </button>
             )}
             <div className="flex items-center gap-1 rounded-xl bg-warm-100 px-2.5 py-1.5 text-xs sm:text-sm">
@@ -369,6 +323,34 @@ export default function ItineraryView({
         </details>
       </div>
 
+      {mode === "compact" && itinerary.budgetBreakdown && (
+        <BudgetSummary breakdown={itinerary.budgetBreakdown} compact />
+      )}
+
+      {mode === "compact" && itinerary.recommendedTransport && (
+        <div className="card-warm px-4 py-3 text-sm">
+          <p className="text-xs text-warm-muted">推荐交通</p>
+          <p className="mt-0.5 font-medium text-warm-text break-anywhere">{itinerary.recommendedTransport}</p>
+        </div>
+      )}
+
+      {mode === "compact" && (itinerary.trainRoutes?.length ?? 0) > 0 && (
+        <details className="card-warm px-4 py-3">
+          <summary className="cursor-pointer text-xs font-semibold text-warm-600">展开火车方案对比</summary>
+          <div className="mt-3">
+            <TransportCompare
+              trainRoutes={itinerary.trainRoutes}
+              flightOption={itinerary.flightOption}
+              busOption={itinerary.busOption}
+              recommended={itinerary.recommendedTransport}
+              routeDistanceKm={itinerary.routeDistanceKm}
+              transportEvidence={itinerary.transportEvidence}
+              travelers={travelers}
+            />
+          </div>
+        </details>
+      )}
+
       {mode === "full" && itinerary.budgetBreakdown && <BudgetSummary breakdown={itinerary.budgetBreakdown} />}
 
       {mode === "full" && (
@@ -395,7 +377,7 @@ export default function ItineraryView({
         <button
           type="button"
           onClick={() => setExpandAll((v) => !v)}
-          className="hidden w-full rounded-lg border border-warm-200 bg-warm-50 py-2 text-xs font-medium text-warm-700 sm:block"
+          className="w-full rounded-lg border border-warm-200 bg-warm-50 py-2 text-xs font-medium text-warm-700"
         >
           {expandAll ? "收起 · 只看单日" : `展开全部 ${itinerary.days.length} 天`}
         </button>
@@ -416,7 +398,7 @@ export default function ItineraryView({
       )}
 
       {expandAll && (
-        <div className="hidden space-y-4 sm:block">
+        <div className="space-y-4">
           {itinerary.days.map((day, i) => (
             <section key={day.day} className="card-warm p-5">
               <DayContent

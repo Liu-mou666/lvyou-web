@@ -22,6 +22,7 @@ import {
   STATION_MODES,
   STYLES,
   TRANSPORTS,
+  DIETARY_OPTS,
 } from "@/lib/trip-form-options";
 import type { TripRequest } from "@/lib/types";
 import { buildTripRequest, tripRequestSchema } from "@/lib/validation/trip-schema";
@@ -147,6 +148,8 @@ export default function TripForm({ onSubmit, loading, onStateChange }: TripFormP
       seatPref: state.seatPref,
       preferDirectTrain: state.preferDirectTrain,
       maxTicketPerPerson: state.maxTicketPerPerson,
+      dietary: state.dietary.length > 0 ? state.dietary : undefined,
+      maxHotelPerNight: state.maxHotelPerNight,
     };
   }
 
@@ -227,7 +230,7 @@ export default function TripForm({ onSubmit, loading, onStateChange }: TripFormP
                 label="去哪玩"
                 value={state.city}
                 onChange={(v) => patch({ city: v })}
-                placeholder="苏州、丽江"
+                placeholder="北京、杭州、丽江、张家界"
                 error={fieldErrors.city}
                 inputClassName={INPUT_CLS}
               />
@@ -247,7 +250,7 @@ export default function TripForm({ onSubmit, loading, onStateChange }: TripFormP
                 <input
                   type="number"
                   min={1}
-                  max={7}
+                  max={14}
                   required
                   value={state.days}
                   onChange={(e) => patch({ days: Number(e.target.value) })}
@@ -343,6 +346,18 @@ export default function TripForm({ onSubmit, loading, onStateChange }: TripFormP
                   />
                 </label>
                 <label className="block min-w-0">
+                  <span className="field-label">每晚住宿上限（0=自动）</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={10}
+                    value={state.maxHotelPerNight}
+                    onChange={(e) => patch({ maxHotelPerNight: Number(e.target.value) })}
+                    className={INPUT_CLS}
+                    placeholder="如 120，省钱模式推荐"
+                  />
+                </label>
+                <label className="block min-w-0 sm:col-span-2">
                   <span className="field-label">门票上限（元/人，0=不限）</span>
                   <input
                     type="number"
@@ -354,6 +369,34 @@ export default function TripForm({ onSubmit, loading, onStateChange }: TripFormP
                     placeholder="如 150，过滤高价景区"
                   />
                 </label>
+              </div>
+              <div>
+                <span className="field-label">饮食约束（可多选）</span>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {DIETARY_OPTS.map((opt) => {
+                    const active = state.dietary.includes(opt.value);
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() =>
+                          patch({
+                            dietary: active
+                              ? state.dietary.filter((d) => d !== opt.value)
+                              : [...state.dietary, opt.value],
+                          })
+                        }
+                        className={`rounded-full border px-3.5 py-2 text-xs font-medium transition ${
+                          active
+                            ? "border-warm-500 bg-warm-500 text-white"
+                            : "border-warm-200 bg-white text-warm-text"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           </FormSection>

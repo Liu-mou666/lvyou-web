@@ -2,6 +2,7 @@ import type { BudgetBreakdown } from "@/lib/types";
 
 interface BudgetSummaryProps {
   breakdown: BudgetBreakdown;
+  compact?: boolean;
 }
 
 const ROWS: { key: "travel" | "lodging" | "meals" | "attractions" | "localTransport"; label: string }[] = [
@@ -19,9 +20,31 @@ const STATUS: Record<BudgetBreakdown["status"], { label: string; cls: string }> 
   unset: { label: "未设上限", cls: "bg-warm-100 text-warm-muted" },
 };
 
-export default function BudgetSummary({ breakdown }: BudgetSummaryProps) {
+export default function BudgetSummary({ breakdown, compact }: BudgetSummaryProps) {
   const pct = breakdown.limit > 0 ? Math.min(100, Math.round((breakdown.total / breakdown.limit) * 100)) : 0;
   const status = STATUS[breakdown.status];
+
+  if (compact) {
+    return (
+      <section className="card-warm px-4 py-3">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <p className="text-xs text-warm-muted">预算合计</p>
+            <p className="text-lg font-bold tabular-nums text-warm-600">¥{breakdown.total}</p>
+          </div>
+          <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${status.cls}`}>{status.label}</span>
+        </div>
+        {breakdown.limit > 0 && (
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-warm-200">
+            <div
+              className={`h-full rounded-full ${breakdown.status === "over" ? "bg-red-500" : "bg-warm-500"}`}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        )}
+      </section>
+    );
+  }
 
   return (
     <section className="card-warm p-4 sm:p-5">

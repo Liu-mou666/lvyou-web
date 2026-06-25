@@ -36,7 +36,7 @@ function buildStaticMapUrl(points: MapPoint[]): string | null {
   if (points.length === 0) return null;
   const mid = points[Math.floor(points.length / 2)];
   const markers = points
-    .slice(0, 10)
+    .slice(0, 30)
     .map((p, i) => `mid,0xE85D04,${i + 1}:${p.poi.lng},${p.poi.lat}`)
     .join("|");
   return `/api/map-static?zoom=12&markers=${encodeURIComponent(markers)}`;

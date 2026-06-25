@@ -1,5 +1,5 @@
 /**
- * POI 平台链接：高德详情最可靠；第三方用店名精准搜，避免拼地址导致零结果
+ * POI 平台链接 + 价格增强（高德 → OTA 真爬 → 价库 → 深链）
  */
 import { getDianpingCityId } from "./city-resolver";
 import type { CityInfo } from "./city-resolver";
@@ -181,7 +181,11 @@ export async function enrichPOIVerified(
   opts?: { checkIn?: string; travelers?: number },
 ): Promise<POI> {
   const travelers = opts?.travelers ?? 2;
-  let enriched = await enrichPriceFromSources(poi, travelers, cityInfo.name);
+  let enriched = await enrichPriceFromSources(poi, travelers, cityInfo.name, {
+    checkIn: opts?.checkIn,
+    adcode: cityInfo.adcode,
+    cityName: cityInfo.name,
+  });
   const links = buildPOILinks(enriched, cityInfo, opts);
   const deals = buildVerifiedDeals(enriched, links);
   const checkIn = opts?.checkIn;

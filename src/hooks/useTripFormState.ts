@@ -35,6 +35,8 @@ export interface TripFormState {
   seatPref: import("@/lib/types").SeatPref;
   preferDirectTrain: boolean;
   maxTicketPerPerson: number;
+  dietary: ("不辣" | "清真" | "素食")[];
+  maxHotelPerNight: number;
   activePreset: string | null;
 }
 
@@ -67,6 +69,8 @@ const DEFAULT_STATE: TripFormState = {
   seatPref: "second",
   preferDirectTrain: false,
   maxTicketPerPerson: 0,
+  dietary: [],
+  maxHotelPerNight: 0,
   activePreset: null,
 };
 

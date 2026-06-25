@@ -12,7 +12,8 @@ export async function POST(request: Request) {
 
     const trip = buildTripRequest(parsed.data);
     const dayIndex = typeof body.dayIndex === "number" ? body.dayIndex : 0;
-    const dayPlan = await refreshDayItinerary(trip, dayIndex);
+    const existingDay = body.existingDay as import("@/lib/types").DayPlan | undefined;
+    const dayPlan = await refreshDayItinerary(trip, dayIndex, existingDay);
 
     if (!dayPlan) {
       return NextResponse.json({ error: "无法刷新该日行程" }, { status: 400 });
@@ -21,7 +22,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       dayPlan,
       refreshedAt: new Date().toISOString(),
-      note: "已重新拉取高德数据并更新排序",
+      note: existingDay ? "已保留景点顺序，更新天气/交通/餐饮/住宿与价格" : "已重新拉取高德数据并更新排序",
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "刷新失败";
