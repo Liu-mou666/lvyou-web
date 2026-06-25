@@ -365,6 +365,7 @@ export async function fetchRealAttractions(
     budget?: BudgetLevel;
     totalBudget?: number;
     travelers?: number;
+    maxTicketPerPerson?: number;
   },
 ): Promise<AttractionFetchResult> {
   const cacheId = cacheKey([
@@ -442,12 +443,18 @@ export async function fetchRealAttractions(
     ),
   );
 
+  const maxTicket = opts?.maxTicketPerPerson ?? 0;
+  const filtered =
+    maxTicket > 0
+      ? verified.filter((p) => p.pricePerPerson <= 0 || p.pricePerPerson <= maxTicket)
+      : verified;
+
   const topWithLinks = topRanked.slice(0, 15).map((item, i) => {
-    const enriched = verified.find((p) => p.id === item.poi.id) ?? item.poi;
+    const enriched = filtered.find((p) => p.id === item.poi.id) ?? item.poi;
     return { ...item, rank: i + 1, poi: enriched };
   });
 
-  const result = { pool: verified.slice(0, fetchCount), topRanked: topWithLinks };
+  const result = { pool: filtered.slice(0, fetchCount), topRanked: topWithLinks };
   storeSetSync(cacheId, result, CACHE_TTL.poi);
   return result;
 }

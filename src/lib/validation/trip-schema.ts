@@ -24,6 +24,10 @@ export const tripRequestSchema = z.object({
   withChildren: z.boolean().optional(),
   withElderly: z.boolean().optional(),
   accessibility: z.boolean().optional(),
+  dayStart: z.enum(["early", "normal", "late"]).optional(),
+  seatPref: z.enum(["second", "first", "any"]).optional(),
+  preferDirectTrain: z.boolean().optional(),
+  maxTicketPerPerson: z.number().min(0).optional(),
 });
 
 export function normalizeTripRequest(data: z.infer<typeof tripRequestSchema>) {
@@ -54,6 +58,10 @@ export function buildTripRequest(data: z.infer<typeof tripRequestSchema>): impor
     withChildren: n.withChildren ?? false,
     withElderly: n.withElderly ?? false,
     accessibility: n.accessibility ?? false,
+    dayStart: n.dayStart ?? "normal",
+    seatPref: n.seatPref ?? "second",
+    preferDirectTrain: n.preferDirectTrain ?? false,
+    maxTicketPerPerson: n.maxTicketPerPerson ?? 0,
   };
 }
 

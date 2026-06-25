@@ -1,7 +1,9 @@
 import type {
   BudgetLevel,
+  DayStartPref,
   MealPref,
   PriorityMode,
+  SeatPref,
   TransportPref,
   TravelPace,
   TravelStyle,
@@ -56,6 +58,105 @@ export const STATION_MODES: { value: "auto" | "hsr" | "classic"; label: string; 
   { value: "auto", label: "自动多站", desc: "同城所有火车站都试" },
   { value: "hsr", label: "优先高铁", desc: "西/南/虹桥等高铁站优先" },
   { value: "classic", label: "优先普速", desc: "张家界站等普速站优先" },
+];
+
+export const DAY_STARTS: { value: DayStartPref; label: string; desc: string }[] = [
+  { value: "early", label: "早起 7:00", desc: "适合赶早班火车" },
+  { value: "normal", label: "常规 8:00", desc: "大多数行程" },
+  { value: "late", label: "悠闲 9:00", desc: "不赶早" },
+];
+
+export const SEAT_PREFS: { value: SeatPref; label: string; desc: string }[] = [
+  { value: "second", label: "二等座", desc: "性价比最高" },
+  { value: "first", label: "一等座", desc: "更舒适" },
+  { value: "any", label: "不限", desc: "有票优先" },
+];
+
+export const STRATEGY_PRESETS: {
+  id: string;
+  label: string;
+  emoji: string;
+  desc: string;
+  patch: Partial<{
+    pace: TravelPace;
+    priority: PriorityMode;
+    style: TravelStyle;
+    budget: BudgetLevel;
+    transportPref: TransportPref;
+    mealPref: MealPref;
+    avoidCrowd: boolean;
+    withChildren: boolean;
+    withElderly: boolean;
+    accessibility: boolean;
+    preferDirectTrain: boolean;
+    dayStart: DayStartPref;
+    maxWalkKmPerDay: number;
+  }>;
+}[] = [
+  {
+    id: "family",
+    label: "带娃轻松",
+    emoji: "👶",
+    desc: "慢节奏·避人流",
+    patch: {
+      pace: "relaxed",
+      priority: "time",
+      withChildren: true,
+      avoidCrowd: true,
+      transportPref: "taxi",
+      maxWalkKmPerDay: 5,
+    },
+  },
+  {
+    id: "budget",
+    label: "省钱穷游",
+    emoji: "💰",
+    desc: "性价比·公交",
+    patch: {
+      priority: "value",
+      pace: "normal",
+      budget: "budget",
+      transportPref: "transit",
+      preferDirectTrain: true,
+    },
+  },
+  {
+    id: "intense",
+    label: "特种兵",
+    emoji: "🏃",
+    desc: "紧凑·省时",
+    patch: {
+      pace: "intense",
+      priority: "time",
+      dayStart: "early",
+      transportPref: "mixed",
+      avoidCrowd: false,
+    },
+  },
+  {
+    id: "culture",
+    label: "深度人文",
+    emoji: "🏛️",
+    desc: "博物馆·古迹",
+    patch: {
+      style: "culture",
+      priority: "experience",
+      pace: "relaxed",
+      avoidCrowd: true,
+    },
+  },
+  {
+    id: "photo",
+    label: "网红打卡",
+    emoji: "📸",
+    desc: "高分景点",
+    patch: {
+      style: "mixed",
+      priority: "experience",
+      pace: "normal",
+      avoidCrowd: false,
+    },
+  },
 ];
 
 export function budgetLevelLabel(level: BudgetLevel): string {

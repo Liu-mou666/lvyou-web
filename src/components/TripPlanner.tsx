@@ -9,9 +9,11 @@ import ItineraryView from "@/components/ItineraryView";
 import MapView from "@/components/MapView";
 import TransportCompare from "@/components/TransportCompare";
 import TripForm from "@/components/TripForm";
+import PreTripPricePanel from "@/components/trip-form/PreTripPricePanel";
 import PriceAuditPanel from "@/components/PriceAuditPanel";
 import VariantCompare from "@/components/VariantCompare";
 import { useGenerateStream } from "@/hooks/useGenerateStream";
+import { loadTripFormState, type TripFormState } from "@/hooks/useTripFormState";
 import { useItineraryHistory, type SavedTrip } from "@/hooks/useItineraryHistory";
 import type { DayPlan, Itinerary, PlanObjective, TripRequest } from "@/lib/types";
 import { useMutation } from "@tanstack/react-query";
@@ -46,6 +48,7 @@ export default function TripPlanner() {
   const [activeTab, setActiveTab] = useState<AppTab>("plan");
   const [lastRequest, setLastRequest] = useState<TripRequest | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<PlanObjective>("value");
+  const [formState, setFormState] = useState<TripFormState>(() => loadTripFormState());
   const [refreshingDay, setRefreshingDay] = useState<number | null>(null);
   const [reorderingDay, setReorderingDay] = useState<number | null>(null);
   const savedRef = useRef<string | null>(null);
@@ -200,7 +203,7 @@ export default function TripPlanner() {
         {activeTab === "plan" && (
           <div className="grid gap-4 lg:grid-cols-12 lg:gap-6">
             <div className="lg:col-span-5 lg:sticky lg:top-[7.5rem] lg:self-start space-y-4">
-              <TripForm onSubmit={handleGenerate} loading={loading} />
+              <TripForm onSubmit={handleGenerate} loading={loading} onStateChange={setFormState} />
               <ItineraryHistoryPanel
                 items={history}
                 onLoad={handleLoadHistory}
@@ -209,6 +212,7 @@ export default function TripPlanner() {
               />
             </div>
             <div className="space-y-4 lg:col-span-7">
+              <PreTripPricePanel state={formState} />
               {loading && progress && <GenerateProgress progress={progress} />}
               {loading && itinerary && itinerary.days.some((d) => d.items.length > 0) && (
                 <MapView itinerary={itinerary} />
@@ -220,12 +224,9 @@ export default function TripPlanner() {
                 </div>
               )}
               {!loading && !error && !itinerary && (
-                <div className="card-warm border-dashed border-warm-300 bg-warm-100/50 p-8 text-center sm:p-10">
-                  <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-warm-glow text-2xl">
-                    ✈
-                  </div>
-                  <p className="font-medium text-warm-text">填写参数后生成行程</p>
-                  <p className="mt-2 text-xs text-warm-muted">生成后可切换地图、行程、对比、榜单与预算</p>
+                <div className="card-warm border-dashed border-warm-300 bg-warm-100/40 p-6 text-center sm:p-8">
+                  <p className="font-medium text-warm-text">填写左侧参数，上方自动查火车与门票</p>
+                  <p className="mt-2 text-xs text-warm-muted">生成后可切换地图、行程、对比、榜单与预算 Tab</p>
                 </div>
               )}
               {itinerary && !loading && (
@@ -289,6 +290,7 @@ export default function TripPlanner() {
               recommended={itinerary.recommendedTransport}
               routeDistanceKm={itinerary.routeDistanceKm}
               transportEvidence={itinerary.transportEvidence}
+              travelers={lastRequest?.travelers ?? 2}
             />
             {!itinerary.budgetBreakdown && (
               <p className="text-center text-sm text-warm-muted">预算明细将在生成完成后显示</p>

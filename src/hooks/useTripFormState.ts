@@ -31,6 +31,11 @@ export interface TripFormState {
   withChildren: boolean;
   withElderly: boolean;
   accessibility: boolean;
+  dayStart: import("@/lib/types").DayStartPref;
+  seatPref: import("@/lib/types").SeatPref;
+  preferDirectTrain: boolean;
+  maxTicketPerPerson: number;
+  activePreset: string | null;
 }
 
 const STORAGE_KEY = "lvyou-trip-form-v2";
@@ -58,6 +63,11 @@ const DEFAULT_STATE: TripFormState = {
   withChildren: false,
   withElderly: false,
   accessibility: false,
+  dayStart: "normal",
+  seatPref: "second",
+  preferDirectTrain: false,
+  maxTicketPerPerson: 0,
+  activePreset: null,
 };
 
 export function loadTripFormState(): TripFormState {

@@ -1,6 +1,8 @@
 export type TravelStyle = "culture" | "food" | "nature" | "shopping" | "mixed";
 export type TravelPace = "relaxed" | "normal" | "intense";
 export type BudgetLevel = "budget" | "moderate" | "luxury";
+export type DayStartPref = "early" | "normal" | "late";
+export type SeatPref = "second" | "first" | "any";
 export type POIType = "attraction" | "restaurant" | "cafe" | "shopping" | "hotel";
 export type MealTime = "breakfast" | "lunch" | "dinner" | "snack" | "any";
 export type TransportMode = "walk" | "bike" | "subway" | "bus" | "taxi";
@@ -36,6 +38,14 @@ export interface TripRequest {
   withChildren?: boolean;
   withElderly?: boolean;
   accessibility?: boolean;
+  /** 每日出门时间偏好 */
+  dayStart?: DayStartPref;
+  /** 火车座位偏好 */
+  seatPref?: SeatPref;
+  /** 优先直达火车（不推荐中转） */
+  preferDirectTrain?: boolean;
+  /** 单景点门票上限（元/人，0=不限） */
+  maxTicketPerPerson?: number;
 }
 
 export interface Location {

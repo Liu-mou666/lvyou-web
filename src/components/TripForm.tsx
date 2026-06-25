@@ -2,8 +2,10 @@
 
 import BudgetSummaryBar from "@/components/trip-form/BudgetSummaryBar";
 import CityInput from "@/components/trip-form/CityInput";
+import FormSection from "@/components/trip-form/FormSection";
 import GenerateConfirmDialog from "@/components/trip-form/GenerateConfirmDialog";
 import PreferenceField from "@/components/trip-form/PreferenceField";
+import StrategyPresets from "@/components/trip-form/StrategyPresets";
 import {
   computeFormSummary,
   loadTripFormState,
@@ -12,9 +14,11 @@ import {
 } from "@/hooks/useTripFormState";
 import {
   BUDGETS,
+  DAY_STARTS,
   MEALS,
   PACES,
   PRIORITIES,
+  SEAT_PREFS,
   STATION_MODES,
   STYLES,
   TRANSPORTS,
@@ -26,10 +30,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 interface TripFormProps {
   onSubmit: (request: TripRequest) => void;
   loading: boolean;
+  onStateChange?: (state: TripFormState) => void;
 }
 
 const INPUT_CLS =
-  "w-full min-w-0 rounded-xl border border-warm-200 bg-white px-4 py-3.5 text-warm-text outline-none transition focus:border-warm-500 focus:ring-2 focus:ring-warm-500/15 sm:py-2.5";
+  "w-full min-w-0 rounded-xl border border-warm-200 bg-white px-4 py-3 text-warm-text outline-none transition focus:border-warm-500 focus:ring-2 focus:ring-warm-500/15 sm:py-2.5";
 
 function TravelersStepper({
   value,
@@ -47,7 +52,7 @@ function TravelersStepper({
       <button
         type="button"
         aria-label="减少人数"
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-warm-200 bg-white text-lg font-medium text-warm-text active:scale-95 disabled:opacity-40"
+        className="stepper-btn"
         disabled={value <= min}
         onClick={() => onChange(Math.max(min, value - 1))}
       >
@@ -57,7 +62,7 @@ function TravelersStepper({
       <button
         type="button"
         aria-label="增加人数"
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-warm-200 bg-white text-lg font-medium text-warm-text active:scale-95 disabled:opacity-40"
+        className="stepper-btn"
         disabled={value >= max}
         onClick={() => onChange(Math.min(max, value + 1))}
       >
@@ -68,7 +73,29 @@ function TravelersStepper({
   );
 }
 
-export default function TripForm({ onSubmit, loading }: TripFormProps) {
+function ToggleRow({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+}) {
+  return (
+    <label className="toggle-row">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-4 w-4 rounded border-warm-300 text-warm-500"
+      />
+      <span>{label}</span>
+    </label>
+  );
+}
+
+export default function TripForm({ onSubmit, loading, onStateChange }: TripFormProps) {
   const today = new Date().toISOString().split("T")[0];
   const [state, setState] = useState<TripFormState>(() => loadTripFormState());
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -80,7 +107,8 @@ export default function TripForm({ onSubmit, loading }: TripFormProps) {
 
   useEffect(() => {
     saveTripFormState(state);
-  }, [state]);
+    onStateChange?.(state);
+  }, [state, onStateChange]);
 
   const summary = useMemo(() => computeFormSummary(state), [state]);
   const budgetLocked = summary.budgetLocked;
@@ -115,6 +143,10 @@ export default function TripForm({ onSubmit, loading }: TripFormProps) {
       withChildren: state.withChildren,
       withElderly: state.withElderly,
       accessibility: state.accessibility,
+      dayStart: state.dayStart,
+      seatPref: state.seatPref,
+      preferDirectTrain: state.preferDirectTrain,
+      maxTicketPerPerson: state.maxTicketPerPerson,
     };
   }
 
@@ -160,25 +192,30 @@ export default function TripForm({ onSubmit, loading }: TripFormProps) {
 
   return (
     <>
-      <form onSubmit={handleSubmit} className="card-warm overflow-hidden p-0 sm:p-5">
-        <div className="border-b border-warm-200 bg-warm-100/60 px-4 py-3 sm:border-0 sm:bg-transparent sm:px-0 sm:pt-0">
-          <h2 className="text-base font-semibold text-warm-text">行程参数</h2>
-          <p className="mt-0.5 text-xs text-warm-muted">填写后生成参考行程，右侧可查看地图、榜单与预算</p>
+      <form onSubmit={handleSubmit} className="trip-form-card">
+        <div className="trip-form-header">
+          <div>
+            <h2 className="text-base font-bold text-warm-text">行程参数</h2>
+            <p className="mt-0.5 text-xs text-warm-muted">右侧可预查火车/门票，生成后支持拖拽改序</p>
+          </div>
         </div>
 
-        <div className="space-y-4 px-4 py-4 sm:space-y-5 sm:px-0">
+        <div className="trip-form-body space-y-5">
           <BudgetSummaryBar state={state} />
 
           {fieldErrors.form && (
-            <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{fieldErrors.form}</p>
+            <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {fieldErrors.form}
+            </p>
           )}
 
-          {/* ① 基础信息 */}
-          <section>
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-warm-muted sm:text-sm">
-              ① 行程基础
-            </h3>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+          <StrategyPresets
+            activeId={state.activePreset}
+            onApply={(presetPatch, presetId) => patch({ ...presetPatch, activePreset: presetId })}
+          />
+
+          <FormSection id="basics" title="行程基础" icon="📍" subtitle="出发地、日期与总预算">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <CityInput
                 label="从哪出发"
                 value={state.departureCity}
@@ -195,7 +232,7 @@ export default function TripForm({ onSubmit, loading }: TripFormProps) {
                 inputClassName={INPUT_CLS}
               />
               <label className="block min-w-0">
-                <span className="mb-1.5 block text-sm font-medium text-warm-muted">出发日期</span>
+                <span className="field-label">出发日期</span>
                 <input
                   type="date"
                   required
@@ -206,7 +243,7 @@ export default function TripForm({ onSubmit, loading }: TripFormProps) {
                 />
               </label>
               <label className="block min-w-0">
-                <span className="mb-1.5 block text-sm font-medium text-warm-muted">玩几天</span>
+                <span className="field-label">玩几天</span>
                 <input
                   type="number"
                   min={1}
@@ -219,12 +256,11 @@ export default function TripForm({ onSubmit, loading }: TripFormProps) {
                 {fieldErrors.days && <p className="mt-1 text-xs text-red-600">{fieldErrors.days}</p>}
               </label>
               <div className="block min-w-0">
-                <span className="mb-1.5 block text-sm font-medium text-warm-muted">出行人数</span>
+                <span className="field-label">出行人数</span>
                 <TravelersStepper value={state.travelers} onChange={(n) => patch({ travelers: n })} />
-                {fieldErrors.travelers && <p className="mt-1 text-xs text-red-600">{fieldErrors.travelers}</p>}
               </div>
               <label className="block min-w-0 sm:col-span-2">
-                <span className="mb-1.5 block text-sm font-medium text-warm-muted">总预算（0 = 不限，填了将自动推导预算等级）</span>
+                <span className="field-label">总预算（0 = 不限）</span>
                 <input
                   type="number"
                   min={0}
@@ -232,142 +268,205 @@ export default function TripForm({ onSubmit, loading }: TripFormProps) {
                   value={state.totalBudget}
                   onChange={(e) => patch({ totalBudget: Number(e.target.value) })}
                   className={INPUT_CLS}
-                  placeholder={`如 ${state.travelers * state.days * 400}（${state.travelers}人${state.days}天参考）`}
+                  placeholder={`参考 ${state.travelers * state.days * 400}（${state.travelers}人${state.days}天）`}
                 />
               </label>
             </div>
-          </section>
+          </FormSection>
 
-          {/* ② 常用偏好 — 手机直接展示 */}
-          <section className="space-y-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-warm-muted sm:text-sm">② 偏好与节奏</h3>
-            <PreferenceField label="行程节奏" name="pace" options={PACES} value={state.pace} onChange={(v) => patch({ pace: v })} columns={3} />
-            <PreferenceField label="优化目标" name="priority" options={PRIORITIES} value={state.priority} onChange={(v) => patch({ priority: v })} columns={3} />
-            <PreferenceField
-              label="出发火车站"
-              hint="查票时同城多站排序"
-              name="station"
-              options={STATION_MODES}
-              value={state.departureStationMode}
-              onChange={(v) => patch({ departureStationMode: v })}
-              columns={3}
-            />
-          </section>
-
-          {/* 手机：更多折叠 */}
-          <details className="mobile-collapse sm:hidden">
-            <summary>▼ 更多偏好（主题、预算、餐饮…）</summary>
-            <div className="mobile-collapse-body space-y-4 pt-3">
-              <PreferenceField label="旅行主题" name="style-m" options={STYLES} value={state.style} onChange={(v) => patch({ style: v })} columns={2} />
+          <FormSection id="strategy" title="规划策略" icon="🎯" subtitle="节奏与优化目标决定路线算法">
+            <div className="space-y-4">
               <PreferenceField
-                label="预算等级"
-                hint={budgetLocked ? "已锁定" : undefined}
-                name="budget-m"
+                label="每日节奏"
+                name="pace"
+                options={PACES}
+                value={state.pace}
+                onChange={(v) => patch({ pace: v, activePreset: null })}
+                columns={3}
+              />
+              <PreferenceField
+                label="优化目标"
+                name="priority"
+                options={PRIORITIES}
+                value={state.priority}
+                onChange={(v) => patch({ priority: v, activePreset: null })}
+                columns={3}
+              />
+            </div>
+          </FormSection>
+
+          <FormSection
+            id="theme"
+            title="主题与消费"
+            icon="🍜"
+            subtitle="景点类型、住宿与餐饮预算"
+            collapsible
+            defaultOpen
+          >
+            <div className="space-y-4">
+              <PreferenceField
+                label="旅行主题"
+                name="style"
+                options={STYLES}
+                value={state.style}
+                onChange={(v) => patch({ style: v, activePreset: null })}
+                columns={2}
+              />
+              <PreferenceField
+                label="住宿等级"
+                hint={budgetLocked ? "总预算已锁定" : "不填总预算时生效"}
+                name="budget"
                 options={BUDGETS}
                 value={state.budget}
                 onChange={(v) => patch({ budget: v })}
                 columns={3}
                 disabled={budgetLocked}
               />
-              <PreferenceField label="出行方式" name="transport-m" options={TRANSPORTS} value={state.transportPref} onChange={(v) => patch({ transportPref: v })} columns={4} />
-              <PreferenceField label="餐饮偏好" name="meal-m" options={MEALS} value={state.mealPref} onChange={(v) => patch({ mealPref: v })} columns={3} />
-              <label className="block min-w-0">
-                <span className="mb-1.5 block text-sm font-medium text-warm-muted">每餐最高人均</span>
-                <input type="number" min={0} step={10} value={state.maxMealBudget} onChange={(e) => patch({ maxMealBudget: Number(e.target.value) })} className={INPUT_CLS} placeholder="0=不限" />
-              </label>
-              <label className="flex cursor-pointer items-center gap-3 py-1">
-                <input type="checkbox" checked={state.avoidCrowd} onChange={(e) => patch({ avoidCrowd: e.target.checked })} className="h-5 w-5 shrink-0 rounded border-warm-300 text-warm-500" />
-                <span className="text-sm text-warm-text">避开高峰人流</span>
-              </label>
-            <label className="block min-w-0">
-              <span className="mb-1.5 block text-sm font-medium text-warm-muted">必去景点（逗号分隔）</span>
-              <input value={state.mustVisitText} onChange={(e) => patch({ mustVisitText: e.target.value })} className={INPUT_CLS} placeholder="故宫、西湖" />
-            </label>
-            <label className="block min-w-0">
-              <span className="mb-1.5 block text-sm font-medium text-warm-muted">不去/避开（逗号分隔）</span>
-              <input value={state.excludeText} onChange={(e) => patch({ excludeText: e.target.value })} className={INPUT_CLS} placeholder="人多的商业街" />
-            </label>
-            <label className="block min-w-0">
-              <span className="mb-1.5 block text-sm font-medium text-warm-muted">每日最大步行 km</span>
-              <input type="number" min={1} max={20} value={state.maxWalkKmPerDay} onChange={(e) => patch({ maxWalkKmPerDay: Number(e.target.value) })} className={INPUT_CLS} />
-            </label>
-            <label className="flex cursor-pointer items-center gap-3 py-1">
-              <input type="checkbox" checked={state.withChildren} onChange={(e) => patch({ withChildren: e.target.checked })} className="h-5 w-5 rounded border-warm-300 text-warm-500" />
-              <span className="text-sm text-warm-text">带娃（自动放缓节奏）</span>
-            </label>
-            <label className="flex cursor-pointer items-center gap-3 py-1">
-              <input type="checkbox" checked={state.withElderly} onChange={(e) => patch({ withElderly: e.target.checked })} className="h-5 w-5 rounded border-warm-300 text-warm-500" />
-              <span className="text-sm text-warm-text">有老人/长辈同行</span>
-            </label>
-            <label className="flex cursor-pointer items-center gap-3 py-1">
-              <input type="checkbox" checked={state.accessibility} onChange={(e) => patch({ accessibility: e.target.checked })} className="h-5 w-5 rounded border-warm-300 text-warm-500" />
-              <span className="text-sm text-warm-text">无障碍需求</span>
-            </label>
-            <label className="block min-w-0">
-              <span className="mb-1.5 block text-sm font-medium text-warm-muted">特殊需求</span>
-              <textarea value={state.notes} onChange={(e) => patch({ notes: e.target.value })} rows={2} className={INPUT_CLS} placeholder="妆造、不吃辣、必去「天门山」…" />
-            </label>
+              <PreferenceField
+                label="餐饮偏好"
+                name="meal"
+                options={MEALS}
+                value={state.mealPref}
+                onChange={(v) => patch({ mealPref: v })}
+                columns={3}
+              />
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="block min-w-0">
+                  <span className="field-label">每餐最高人均（0=不限）</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={10}
+                    value={state.maxMealBudget}
+                    onChange={(e) => patch({ maxMealBudget: Number(e.target.value) })}
+                    className={INPUT_CLS}
+                  />
+                </label>
+                <label className="block min-w-0">
+                  <span className="field-label">门票上限（元/人，0=不限）</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={20}
+                    value={state.maxTicketPerPerson}
+                    onChange={(e) => patch({ maxTicketPerPerson: Number(e.target.value) })}
+                    className={INPUT_CLS}
+                    placeholder="如 150，过滤高价景区"
+                  />
+                </label>
+              </div>
             </div>
-          </details>
+          </FormSection>
 
-          {/* 桌面：③ 详细偏好 */}
-          <section className="hidden space-y-5 sm:block">
-            <h3 className="text-sm font-semibold text-warm-muted">③ 详细偏好</h3>
-            <PreferenceField label="旅行主题" name="style" options={STYLES} value={state.style} onChange={(v) => patch({ style: v })} columns={2} />
-            <PreferenceField
-              label="预算等级"
-              hint={budgetLocked ? "总预算已填，等级自动推导" : "不填总预算时生效"}
-              name="budget"
-              options={BUDGETS}
-              value={state.budget}
-              onChange={(v) => patch({ budget: v })}
-              columns={3}
-              disabled={budgetLocked}
-            />
-            <PreferenceField label="出行方式" name="transport" options={TRANSPORTS} value={state.transportPref} onChange={(v) => patch({ transportPref: v })} columns={4} />
-            <PreferenceField label="餐饮偏好" name="meal" options={MEALS} value={state.mealPref} onChange={(v) => patch({ mealPref: v })} columns={3} />
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-warm-muted">每餐最高人均（0=不限）</span>
-              <input type="number" min={0} step={10} value={state.maxMealBudget} onChange={(e) => patch({ maxMealBudget: Number(e.target.value) })} className={INPUT_CLS} />
-            </label>
-            <label className="flex cursor-pointer items-center gap-3">
-              <input type="checkbox" checked={state.avoidCrowd} onChange={(e) => patch({ avoidCrowd: e.target.checked })} className="h-4 w-4 rounded border-warm-300 text-warm-500" />
-              <span className="text-sm text-warm-text">避开高峰人流</span>
-            </label>
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-warm-muted">必去景点（逗号分隔）</span>
-              <input value={state.mustVisitText} onChange={(e) => patch({ mustVisitText: e.target.value })} className={INPUT_CLS} />
-            </label>
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-warm-muted">不去/避开</span>
-              <input value={state.excludeText} onChange={(e) => patch({ excludeText: e.target.value })} className={INPUT_CLS} />
-            </label>
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-warm-muted">每日最大步行 km</span>
-              <input type="number" min={1} max={20} value={state.maxWalkKmPerDay} onChange={(e) => patch({ maxWalkKmPerDay: Number(e.target.value) })} className={INPUT_CLS} />
-            </label>
-            <div className="flex flex-wrap gap-4">
-              <label className="flex cursor-pointer items-center gap-2">
-                <input type="checkbox" checked={state.withChildren} onChange={(e) => patch({ withChildren: e.target.checked })} className="h-4 w-4 rounded" />
-                <span className="text-sm">带娃</span>
+          <FormSection
+            id="transport"
+            title="交通与约束"
+            icon="🚄"
+            subtitle="市内出行、火车查票与步行上限"
+            collapsible
+            defaultOpen
+          >
+            <div className="space-y-4">
+              <PreferenceField
+                label="市内出行"
+                name="transport"
+                options={TRANSPORTS}
+                value={state.transportPref}
+                onChange={(v) => patch({ transportPref: v })}
+                columns={4}
+              />
+              <PreferenceField
+                label="出发火车站"
+                hint="查票时同城多站排序"
+                name="station"
+                options={STATION_MODES}
+                value={state.departureStationMode}
+                onChange={(v) => patch({ departureStationMode: v })}
+                columns={3}
+              />
+              <PreferenceField
+                label="座位偏好"
+                name="seat"
+                options={SEAT_PREFS}
+                value={state.seatPref}
+                onChange={(v) => patch({ seatPref: v })}
+                columns={3}
+              />
+              <PreferenceField
+                label="每日出门"
+                name="dayStart"
+                options={DAY_STARTS}
+                value={state.dayStart}
+                onChange={(v) => patch({ dayStart: v })}
+                columns={3}
+              />
+              <label className="block min-w-0">
+                <span className="field-label">每日最大步行 km</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={state.maxWalkKmPerDay}
+                  onChange={(e) => patch({ maxWalkKmPerDay: Number(e.target.value) })}
+                  className={INPUT_CLS}
+                />
               </label>
-              <label className="flex cursor-pointer items-center gap-2">
-                <input type="checkbox" checked={state.withElderly} onChange={(e) => patch({ withElderly: e.target.checked })} className="h-4 w-4 rounded" />
-                <span className="text-sm">有老人</span>
+              <div className="flex flex-wrap gap-3">
+                <ToggleRow checked={state.avoidCrowd} onChange={(v) => patch({ avoidCrowd: v })} label="避开高峰人流" />
+                <ToggleRow
+                  checked={state.preferDirectTrain}
+                  onChange={(v) => patch({ preferDirectTrain: v })}
+                  label="火车优先直达"
+                />
+                <ToggleRow checked={state.withChildren} onChange={(v) => patch({ withChildren: v })} label="带娃" />
+                <ToggleRow checked={state.withElderly} onChange={(v) => patch({ withElderly: v })} label="有老人" />
+                <ToggleRow checked={state.accessibility} onChange={(v) => patch({ accessibility: v })} label="无障碍" />
+              </div>
+            </div>
+          </FormSection>
+
+          <FormSection
+            id="advanced"
+            title="必去与避开"
+            icon="✏️"
+            subtitle="景点白名单/黑名单与备注"
+            collapsible
+            defaultOpen={false}
+          >
+            <div className="space-y-3">
+              <label className="block min-w-0">
+                <span className="field-label">必去景点（逗号分隔，右侧自动查门票）</span>
+                <input
+                  value={state.mustVisitText}
+                  onChange={(e) => patch({ mustVisitText: e.target.value })}
+                  className={INPUT_CLS}
+                  placeholder="故宫、西湖、天门山"
+                />
               </label>
-              <label className="flex cursor-pointer items-center gap-2">
-                <input type="checkbox" checked={state.accessibility} onChange={(e) => patch({ accessibility: e.target.checked })} className="h-4 w-4 rounded" />
-                <span className="text-sm">无障碍</span>
+              <label className="block min-w-0">
+                <span className="field-label">不去/避开</span>
+                <input
+                  value={state.excludeText}
+                  onChange={(e) => patch({ excludeText: e.target.value })}
+                  className={INPUT_CLS}
+                  placeholder="人多的商业街"
+                />
+              </label>
+              <label className="block min-w-0">
+                <span className="field-label">特殊需求</span>
+                <textarea
+                  value={state.notes}
+                  onChange={(e) => patch({ notes: e.target.value })}
+                  rows={2}
+                  className={INPUT_CLS}
+                  placeholder="妆造、不吃辣…"
+                />
               </label>
             </div>
-            <label className="block">
-              <span className="mb-1.5 block text-sm font-medium text-warm-muted">特殊需求（可选）</span>
-              <textarea value={state.notes} onChange={(e) => patch({ notes: e.target.value })} rows={2} className={INPUT_CLS} placeholder="妆造、不吃辣、必去「天门山」…" />
-            </label>
-          </section>
+          </FormSection>
         </div>
 
-        <div className="sticky bottom-0 border-t border-warm-200 bg-white/95 px-4 py-3 backdrop-blur-sm sm:static sm:border-0 sm:bg-transparent sm:px-0 sm:pt-2">
+        <div className="trip-form-footer">
           <button type="submit" disabled={loading} className="btn-primary">
             {loading ? "生成中…" : "生成参考行程"}
           </button>

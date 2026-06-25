@@ -178,7 +178,12 @@ async function buildDayPlan(
   const rainy = weather.condition === "rainy";
   const items: TimelineItem[] = [];
   const usedRestaurantIds = new Set<string>();
-  let currentMinutes = 8 * 60;
+  let currentMinutes =
+    request.dayStart === "early"
+      ? 7 * 60
+      : request.dayStart === "late"
+        ? 9 * 60
+        : 8 * 60;
   let lastLocation: POI | null = null;
 
   const transportPref = request.transportPref ?? "mixed";
@@ -347,6 +352,8 @@ async function buildAttractionPool(
       priority: req.priority,
       budget: req.budget,
       totalBudget: req.totalBudget,
+      travelers,
+      maxTicketPerPerson: req.maxTicketPerPerson,
     }),
     constraints.mustVisit.length > 0
       ? fetchMustVisitPOIs(cityInfo, constraints.mustVisit, travelers)

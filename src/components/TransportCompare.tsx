@@ -8,9 +8,10 @@ interface TransportCompareProps {
   recommended?: string;
   routeDistanceKm?: number;
   transportEvidence?: Evidence[];
+  travelers?: number;
 }
 
-function LegBookings({ route }: { route: TrainRoute }) {
+function LegBookings({ route, travelers }: { route: TrainRoute; travelers: number }) {
   if (route.type !== "transfer" || route.legs.length < 2) return null;
 
   return (
@@ -21,7 +22,7 @@ function LegBookings({ route }: { route: TrainRoute }) {
           <p className="text-xs font-semibold text-warm-text">
             第 {i + 1} 段 · {leg.from} → {leg.to}
             <span className="mt-0.5 block font-normal text-warm-muted sm:ml-2 sm:mt-0 sm:inline">
-              {Math.round(leg.durationHours * 10) / 10}h · ¥{leg.price}（2人二等座合计）
+              {Math.round(leg.durationHours * 10) / 10}h · ¥{leg.price}（{travelers}人合计）
             </span>
           </p>
           <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
@@ -44,7 +45,15 @@ function LegBookings({ route }: { route: TrainRoute }) {
   );
 }
 
-function RouteRow({ route, variant }: { route: TrainRoute; variant: "train" | "flight" | "bus" }) {
+function RouteRow({
+  route,
+  variant,
+  travelers,
+}: {
+  route: TrainRoute;
+  variant: "train" | "flight" | "bus";
+  travelers: number;
+}) {
   const badge =
     variant === "flight" ? "飞机" : variant === "bus" ? "汽车" : route.type === "transfer" ? "中转" : "直达";
 
@@ -96,7 +105,7 @@ function RouteRow({ route, variant }: { route: TrainRoute; variant: "train" | "f
             {route.verified !== false && route.totalPrice > 0 ? (
               <>
                 <p className="text-xl font-bold tabular-nums text-warm-600">¥{route.totalPrice}</p>
-                <p className="text-[10px] text-warm-muted">2人二等座合计</p>
+                <p className="text-[10px] text-warm-muted">{travelers}人合计</p>
               </>
             ) : (
               <p className="text-sm font-medium text-warm-muted">请链接查价</p>
@@ -111,7 +120,7 @@ function RouteRow({ route, variant }: { route: TrainRoute; variant: "train" | "f
         </div>
       </div>
 
-      <LegBookings route={route} />
+      <LegBookings route={route} travelers={travelers} />
 
       {route.type === "direct" && (
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
@@ -145,6 +154,7 @@ export default function TransportCompare({
   recommended,
   routeDistanceKm,
   transportEvidence,
+  travelers = 2,
 }: TransportCompareProps) {
   if (!trainRoutes?.length && !flightOption && !busOption) return null;
 
@@ -160,9 +170,9 @@ export default function TransportCompare({
       </div>
 
       <div className="space-y-3 p-3 min-w-0 sm:p-5">
-        {trainRoutes?.map((r) => <RouteRow key={r.id} route={r} variant="train" />)}
-        {flightOption && <RouteRow route={flightOption} variant="flight" />}
-        {busOption && <RouteRow route={busOption} variant="bus" />}
+        {trainRoutes?.map((r) => <RouteRow key={r.id} route={r} variant="train" travelers={travelers} />)}
+        {flightOption && <RouteRow route={flightOption} variant="flight" travelers={travelers} />}
+        {busOption && <RouteRow route={busOption} variant="bus" travelers={travelers} />}
       </div>
 
       {transportEvidence && transportEvidence.length > 0 && (

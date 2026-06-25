@@ -284,18 +284,23 @@ export async function buildOptimalTravelTickets(
       const totalBudget = request.totalBudget ?? 0;
       const travelCap = totalBudget > 0 ? totalBudget * 0.35 : Infinity;
       const verified = trainRoutes.filter((r) => r.verified);
+      const candidatePool =
+        request.preferDirectTrain
+          ? verified.filter((r) => r.type === "direct")
+          : verified;
+      const pool = candidatePool.length > 0 ? candidatePool : verified;
 
       const pickBest = (): TrainRoute => {
         if (totalBudget > 0 || priority === "value") {
-          const sorted = [...verified].sort((a, b) => a.totalPrice - b.totalPrice);
+          const sorted = [...pool].sort((a, b) => a.totalPrice - b.totalPrice);
           const affordable = sorted.filter((r) => r.totalPrice <= travelCap);
           if (affordable.length) return affordable[0];
           return sorted[0];
         }
         if (priority === "time") {
-          return verified.reduce((a, b) => (a.totalHours <= b.totalHours ? a : b));
+          return pool.reduce((a, b) => (a.totalHours <= b.totalHours ? a : b));
         }
-        return verified.reduce((a, b) => (a.score >= b.score ? a : b));
+        return pool.reduce((a, b) => (a.score >= b.score ? a : b));
       };
 
       const best = pickBest();
