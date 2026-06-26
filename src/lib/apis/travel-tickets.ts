@@ -394,6 +394,48 @@ export async function buildOptimalTravelTickets(
   const trainRoutes: TrainRoute[] = [];
   const transportEvidence: Evidence[] = [];
 
+  /** 预查价：跳过 12306 多站轮询（Vercel 10s 内必返回） */
+  if (options?.preview && fromPrimary && toPrimary) {
+    const msg = hasJuheKey()
+      ? "预查价为提速仅提供查票链接；点「确认并生成行程」后将查 12306 实价"
+      : "未配置 JUHE_TRAIN_KEY，请点携程链接查当日车次";
+    const searchRoute = buildSearchOnlyRoute(fromCandidates, toCandidates, date, msg);
+    searchRoute.recommended = true;
+    searchRoute.title = `${fromPrimary.name} → ${toPrimary.name} · 预查价`;
+    trainRoutes.push(searchRoute);
+
+    let flightOption: TrainRoute | undefined;
+    if (distanceKm >= 500) {
+      const flightLinks: PlatformLink[] = [
+        { platform: "ctrip", label: "携程机票", action: "查航班", url: ctripFlightUrl(fromName, toName, date) },
+      ];
+      flightOption = {
+        id: "flight",
+        type: "direct",
+        title: "飞机（备选）",
+        legs: [{ from: fromName, to: toName, durationHours: 0, price: 0 }],
+        totalHours: 0,
+        totalPrice: 0,
+        transferMinutes: 0,
+        description: `约 ${distanceKm} km · 点击下方查航班`,
+        score: 35,
+        recommended: false,
+        verified: false,
+        bookingUrl: flightLinks[0].url,
+        links: flightLinks,
+        dataSource: "查票链接",
+      };
+    }
+
+    return {
+      trainRoutes,
+      flightOption,
+      recommended: searchRoute.title,
+      routeInfo,
+      transportEvidence,
+    };
+  }
+
   if (fromPrimary && toPrimary) {
     const preview = options?.preview ?? false;
     const direct = await buildDirectRoute(fromCandidates, toCandidates, date, travelers, seatPref, preview);
