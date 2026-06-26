@@ -3,7 +3,7 @@ import { hasJuheKey } from "@/lib/data/providers/train-juhe";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-export const maxDuration = 30;
+export const maxDuration = 10;
 
 const schema = z.object({
   departureCity: z.string().trim().min(1),

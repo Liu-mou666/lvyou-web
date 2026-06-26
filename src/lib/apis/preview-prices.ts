@@ -1,4 +1,4 @@
-import { resolveCityInfo } from "./city-resolver";
+import { resolveCityInfoForPreview } from "./city-resolver";
 import { fetchPOIDetail, searchPOI } from "./amap";
 import { buildOptimalTravelTickets, buildSearchOnlyRoute } from "./travel-tickets";
 import { lookupPublicTicketHint } from "../engine/public-price-db";
@@ -123,9 +123,10 @@ export async function buildPricePreview(input: {
   maxHotelPerNight?: number;
 }): Promise<PricePreviewResult> {
   const run = async (): Promise<PricePreviewResult> => {
+    try {
     const [toCityInfo, fromCityInfo] = await Promise.all([
-      resolveCityInfo(input.city.trim()),
-      resolveCityInfo(input.departureCity.trim()),
+      resolveCityInfoForPreview(input.city.trim()),
+      resolveCityInfoForPreview(input.departureCity.trim()),
     ]);
 
     const req: TripRequest = {
@@ -200,9 +201,13 @@ export async function buildPricePreview(input: {
       tickets,
       fetchedAt: new Date().toISOString(),
     };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "查价失败";
+      return emptyPreviewWarning(msg);
+    }
   };
 
-  const timeoutMs = 22_000;
+  const timeoutMs = 9_000;
   const timeout = new Promise<PricePreviewResult>((resolve) => {
     setTimeout(
       () =>

@@ -1,3 +1,4 @@
+import { CITY_ADCODES } from "../config";
 import { amapGet, type AmapGeoResponse } from "./amap";
 
 /** 全国任意城市/区县，通过高德地理编码解析 */
@@ -120,4 +121,58 @@ export async function resolveCityInfo(input: string): Promise<CityInfo> {
   }
 
   throw lastErr ?? new Error(`无法识别「${input}」，请输入标准地名，如：杭州、九寨沟县、香格里拉、乌镇`);
+}
+
+/** 预查价/快速路径：热门城免 geocode（避免 Vercel 10s 超时） */
+const HOT_CITY_COORDS: Record<string, { lat: number; lng: number; province: string }> = {
+  北京: { lat: 39.9042, lng: 116.4074, province: "北京市" },
+  上海: { lat: 31.2304, lng: 121.4737, province: "上海市" },
+  杭州: { lat: 30.2741, lng: 120.1551, province: "浙江省" },
+  成都: { lat: 30.5728, lng: 104.0668, province: "四川省" },
+  西安: { lat: 34.3416, lng: 108.9398, province: "陕西省" },
+  广州: { lat: 23.1291, lng: 113.2644, province: "广东省" },
+  深圳: { lat: 22.5431, lng: 114.0579, province: "广东省" },
+  南京: { lat: 32.0603, lng: 118.7969, province: "江苏省" },
+  苏州: { lat: 31.2989, lng: 120.5853, province: "江苏省" },
+  重庆: { lat: 29.563, lng: 106.5516, province: "重庆市" },
+  武汉: { lat: 30.5928, lng: 114.3055, province: "湖北省" },
+  厦门: { lat: 24.4798, lng: 118.0894, province: "福建省" },
+  青岛: { lat: 36.0671, lng: 120.3826, province: "山东省" },
+  天津: { lat: 39.3434, lng: 117.3616, province: "天津市" },
+  长沙: { lat: 28.2282, lng: 112.9388, province: "湖南省" },
+  昆明: { lat: 25.0389, lng: 102.7183, province: "云南省" },
+  三亚: { lat: 18.2528, lng: 109.5119, province: "海南省" },
+  无锡: { lat: 31.4912, lng: 120.3119, province: "江苏省" },
+  宁波: { lat: 29.8683, lng: 121.544, province: "浙江省" },
+};
+
+export function resolveCityInfoCached(input: string): CityInfo | null {
+  const key = input.trim().replace(/市$/g, "");
+  const adcode = CITY_ADCODES[key];
+  const coords = HOT_CITY_COORDS[key];
+  if (!adcode || !coords) return null;
+  return {
+    name: key,
+    adcode,
+    cityAdcode: toCityLevelAdcode(adcode),
+    province: coords.province,
+    lat: coords.lat,
+    lng: coords.lng,
+    formattedAddress: `${coords.province}${key}市`,
+  };
+}
+
+export async function resolveCityInfoForPreview(input: string): Promise<CityInfo> {
+  const cached = resolveCityInfoCached(input);
+  if (cached) return cached;
+  const timeoutMs = 4500;
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`解析「${input}」超时`)), timeoutMs);
+  });
+  try {
+    return await Promise.race([resolveCityInfo(input), timeout]);
+  } finally {
+    clearTimeout(timer!);
+  }
 }

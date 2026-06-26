@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "src/app/api/preview-prices/route.ts": {
+      "maxDuration": 10
+    },
+    "src/app/api/generate/stream/route.ts": {
+      "maxDuration": 120
+    }
+  }
+}
