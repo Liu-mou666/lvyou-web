@@ -201,14 +201,30 @@ async function buildDayPlan(
     : optimizeRouteWithTimeWindows([...attractions], objective);
   const anchor = dayAttractions[0] ?? attractions[0];
   if (!anchor) {
+    const hotels = await fetchHotelsNearLocation(
+      `${cityInfo.lng},${cityInfo.lat}`,
+      cityInfo,
+      request.budget,
+      3,
+      date,
+      {
+        priority: request.priority,
+        totalBudget: request.totalBudget,
+        days: request.days,
+        travelers,
+        maxHotelPerNight: request.maxHotelPerNight,
+      },
+    );
     return {
       day: dayIndex + 1,
       date,
       weather,
       items: [],
-      totalCost: 0,
+      hotel: hotels[0],
+      hotelAlternatives: hotels.slice(1, 3),
+      totalCost: hotels[0]?.pricePerPerson ?? 0,
       totalDistance: 0,
-      summary: `暂无景点数据 · ${weatherLabel(weather.condition)} ${weather.tempLow}°~${weather.tempHigh}°C`,
+      summary: `待补充景点 · ${hotels[0] ? "已推荐住宿" : "建议换城市或放宽条件"} · ${weatherLabel(weather.condition)} ${weather.tempLow}°~${weather.tempHigh}°C`,
     };
   }
 
@@ -462,7 +478,7 @@ export async function generateItinerary(request: TripRequest): Promise<Itinerary
   const cityInfo = await resolveCityInfo(req.city);
   const pace = effectivePace(req);
   const perDay = PACE_ATTRACTIONS[pace];
-  const needed = req.days * perDay;
+  const needed = req.days * perDay + 8;
   const departureCity = req.departureCity?.trim() || "上海";
   const objective = objectiveFromPriority(req.priority);
 
@@ -486,13 +502,19 @@ export async function generateItinerary(request: TripRequest): Promise<Itinerary
   const dayAttractionLists = clusterDistributeAttractions(attractionPool, req.days, perDay, objective);
 
   const dayPlans: DayPlan[] = [];
+  const assignedIds = new Set<string>();
   for (let d = 0; d < req.days; d++) {
+    let dayAttrs = dayAttractionLists[d] ?? [];
+    if (dayAttrs.length === 0) {
+      dayAttrs = attractionPool.filter((p) => !assignedIds.has(p.id)).slice(0, perDay);
+    }
+    dayAttrs.forEach((p) => assignedIds.add(p.id));
     dayPlans.push(
       await buildDayPlan(
         d,
         forecasts[d].date,
         forecasts[d],
-        dayAttractionLists[d] ?? [],
+        dayAttrs,
         cityInfo,
         req,
         specialPOIs,
@@ -581,7 +603,7 @@ export async function generateItineraryWithProgress(
 
     const pace = effectivePace(req);
     const perDay = PACE_ATTRACTIONS[pace];
-    const needed = req.days * perDay;
+    const needed = req.days * perDay + 8;
     const departureCity = req.departureCity?.trim() || "上海";
     const objective = objectiveFromPriority(req.priority);
 
@@ -639,8 +661,14 @@ export async function generateItineraryWithProgress(
     const dayAttractionLists = clusterDistributeAttractions(attractionPool, req.days, perDay, objective);
     const dayPlans: DayPlan[] = [];
     const daySpan = 40 / req.days;
+    const assignedIds = new Set<string>();
 
     for (let d = 0; d < req.days; d++) {
+      let dayAttrs = dayAttractionLists[d] ?? [];
+      if (dayAttrs.length === 0) {
+        dayAttrs = attractionPool.filter((p) => !assignedIds.has(p.id)).slice(0, perDay);
+      }
+      dayAttrs.forEach((p) => assignedIds.add(p.id));
       emitProgress(
         `day-${d}`,
         55 + Math.round(daySpan * d),
@@ -650,7 +678,7 @@ export async function generateItineraryWithProgress(
         d,
         forecasts[d].date,
         forecasts[d],
-        dayAttractionLists[d] ?? [],
+        dayAttrs,
         cityInfo,
         req,
         specialPOIs,

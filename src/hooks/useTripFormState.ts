@@ -43,10 +43,11 @@ export interface TripFormState {
 
 const STORAGE_KEY = "lvyou-trip-form-v2";
 
-const DEFAULT_STATE: TripFormState = {
+/** 与 SSR 首屏一致，勿在模块顶层读 localStorage / new Date() */
+export const DEFAULT_TRIP_FORM_STATE: TripFormState = {
   city: "北京",
   departureCity: "上海",
-  startDate: new Date().toISOString().split("T")[0],
+  startDate: "",
   days: 3,
   travelers: 2,
   style: "mixed",
@@ -75,15 +76,22 @@ const DEFAULT_STATE: TripFormState = {
   activePreset: null,
 };
 
+function todayIso(): string {
+  return new Date().toISOString().split("T")[0];
+}
+
+export { todayIso };
+
 export function loadTripFormState(): TripFormState {
-  if (typeof window === "undefined") return DEFAULT_STATE;
+  const base = { ...DEFAULT_TRIP_FORM_STATE, startDate: todayIso() };
+  if (typeof window === "undefined") return base;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_STATE;
+    if (!raw) return base;
     const parsed = JSON.parse(raw) as Partial<TripFormState>;
-    return { ...DEFAULT_STATE, ...parsed };
+    return { ...base, ...parsed, startDate: parsed.startDate || todayIso() };
   } catch {
-    return DEFAULT_STATE;
+    return base;
   }
 }
 
@@ -104,9 +112,13 @@ export function computeFormSummary(state: TripFormState) {
   const perPersonDay =
     state.totalBudget > 0 ? Math.round(state.totalBudget / state.days / state.travelers) : null;
 
-  const end = new Date(state.startDate);
+  const start =
+    state.startDate && !Number.isNaN(new Date(state.startDate).getTime())
+      ? new Date(state.startDate)
+      : new Date();
+  const end = new Date(start);
   end.setDate(end.getDate() + state.days - 1);
-  const endDate = end.toISOString().split("T")[0];
+  const endDate = Number.isNaN(end.getTime()) ? "" : end.toISOString().split("T")[0];
 
   const warnings: string[] = [];
   if (state.totalBudget > 0 && state.totalBudget < state.travelers * state.days * 120) {

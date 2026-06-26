@@ -26,7 +26,7 @@ function mergePartial(prev: Itinerary | null, patch: Partial<Itinerary>): Itiner
   return { ...base, ...patch, days: patch.days ?? base.days };
 }
 
-const GENERATE_CLIENT_TIMEOUT_MS = 105_000;
+const GENERATE_CLIENT_TIMEOUT_MS = 118_000;
 
 export function useGenerateStream() {
   const [loading, setLoading] = useState(false);

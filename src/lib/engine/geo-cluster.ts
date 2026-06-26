@@ -100,5 +100,26 @@ export function clusterDistributeAttractions(
     else break;
   }
 
+  // 池子够用时保证每天都有景点，避免 4 天行程只出 2 天
+  if (unique.length >= days) {
+    for (let d = 0; d < days; d++) {
+      if (result[d].length > 0) continue;
+      let donor = -1;
+      for (let i = 0; i < days; i++) {
+        if (result[i].length > 1 && (donor < 0 || result[i].length > result[donor].length)) {
+          donor = i;
+        }
+      }
+      if (donor >= 0) {
+        result[d].push(result[donor].pop()!);
+        continue;
+      }
+      const spare = unique.find(
+        (p) => !result.some((day) => day.some((x) => x.id === p.id && x.name === p.name)),
+      );
+      if (spare) result[d].push(spare);
+    }
+  }
+
   return result;
 }

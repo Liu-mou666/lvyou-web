@@ -13,7 +13,7 @@ import PreTripPricePanel from "@/components/trip-form/PreTripPricePanel";
 import PriceAuditPanel from "@/components/PriceAuditPanel";
 import VariantCompare from "@/components/VariantCompare";
 import { useGenerateStream } from "@/hooks/useGenerateStream";
-import { loadTripFormState, type TripFormState } from "@/hooks/useTripFormState";
+import { DEFAULT_TRIP_FORM_STATE, type TripFormState } from "@/hooks/useTripFormState";
 import { useItineraryHistory, type SavedTrip } from "@/hooks/useItineraryHistory";
 import type { DayPlan, Itinerary, PlanObjective, TripRequest } from "@/lib/types";
 import { useMutation } from "@tanstack/react-query";
@@ -48,7 +48,7 @@ export default function TripPlanner() {
   const [activeTab, setActiveTab] = useState<AppTab>("plan");
   const [lastRequest, setLastRequest] = useState<TripRequest | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<PlanObjective>("value");
-  const [formState, setFormState] = useState<TripFormState>(() => loadTripFormState());
+  const [formState, setFormState] = useState<TripFormState>(DEFAULT_TRIP_FORM_STATE);
   const [refreshingDay, setRefreshingDay] = useState<number | null>(null);
   const [reorderingDay, setReorderingDay] = useState<number | null>(null);
   const savedRef = useRef<string | null>(null);

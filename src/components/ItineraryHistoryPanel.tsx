@@ -33,7 +33,7 @@ export default function ItineraryHistoryPanel({
             <div className="min-w-0">
               <p className="font-medium text-warm-text">{item.city} · {item.days}天</p>
               <p className="text-xs text-warm-muted">
-                ¥{item.totalCost} · {new Date(item.savedAt).toLocaleDateString("zh-CN")}
+                ¥{item.totalCost} · <span suppressHydrationWarning>{new Date(item.savedAt).toLocaleDateString("zh-CN")}</span>
               </p>
             </div>
             <div className="flex shrink-0 gap-2">

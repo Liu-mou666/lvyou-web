@@ -5,7 +5,7 @@ import type { GenerateStreamEvent } from "@/lib/types/stream";
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-const GENERATE_TIMEOUT_MS = 100_000;
+const GENERATE_TIMEOUT_MS = 115_000;
 
 function sseLine(event: GenerateStreamEvent): string {
   return `data: ${JSON.stringify(event)}\n\n`;

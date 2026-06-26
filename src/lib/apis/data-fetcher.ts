@@ -326,31 +326,48 @@ export async function fetchHotelsNearLocation(
         : ["全季", "亚朵", "汉庭", "舒适型酒店", "商务酒店"];
 
   const all: POI[] = [];
+  const refNight =
+    budget === "luxury" ? 380 : budget === "budget" ? 150 : priority === "value" ? 180 : 260;
+
+  function acceptHotel(mapped: POI): POI | null {
+    let price = mapped.pricePerPerson;
+    if (price <= 0) {
+      if (/汉庭|如家|7天|锦江之星|格林豪泰|尚客优|怡莱/.test(mapped.name)) {
+        price = 128;
+        mapped.priceNote = "连锁经济型参考价 ¥128/晚";
+      } else if (/全季|亚朵|维也纳/.test(mapped.name)) {
+        price = 168;
+        mapped.priceNote = "连锁舒适型参考价 ¥168/晚";
+      } else {
+        price = refNight;
+        mapped.priceNote = `区域酒店参考价 ¥${refNight}/晚 · 请平台核实`;
+      }
+      mapped.pricePerPerson = price;
+      mapped.cost = price;
+      mapped.priceConfidence = "low";
+    }
+    if (price < minNight * 0.7 || price > maxNight * 1.15) return null;
+    if (mapped.rating < 3.5 && mapped.rating > 0) return null;
+    return mapped;
+  }
+
   for (const kw of keywords) {
     const pois = await searchAround({ location: nearLocation, keywords: kw, types: "100000", radius: 3000 });
     for (const p of pois) {
       const mapped = amapToPOI(p, "hotel", "mixed", cityInfo.name, undefined, budget);
       if (!mapped) continue;
-      let price = mapped.pricePerPerson;
-      if (price <= 0) {
-        if (/汉庭|如家|7天|锦江之星|格林豪泰|尚客优|怡莱/.test(mapped.name)) {
-          price = 128;
-          mapped.pricePerPerson = price;
-          mapped.cost = price;
-          mapped.priceConfidence = "low";
-          mapped.priceNote = "连锁经济型参考价 ¥128/晚";
-        } else if (/全季|亚朵|维也纳/.test(mapped.name)) {
-          price = 168;
-          mapped.pricePerPerson = price;
-          mapped.cost = price;
-          mapped.priceConfidence = "low";
-          mapped.priceNote = "连锁舒适型参考价 ¥168/晚";
-        } else {
-          continue;
-        }
-      }
-      if (price < minNight * 0.85 || price > maxNight) continue;
-      if (mapped.rating >= 4.0) all.push(mapped);
+      const accepted = acceptHotel(mapped);
+      if (accepted) all.push(accepted);
+    }
+  }
+
+  if (all.length < limit) {
+    const fallback = await searchAround({ location: nearLocation, keywords: "酒店", types: "100000", radius: 4000 });
+    for (const p of fallback) {
+      const mapped = amapToPOI(p, "hotel", "mixed", cityInfo.name, undefined, budget);
+      if (!mapped) continue;
+      const accepted = acceptHotel(mapped);
+      if (accepted) all.push(accepted);
     }
   }
 

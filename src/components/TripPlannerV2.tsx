@@ -17,8 +17,8 @@ import MapDrawer from "@/components/v2/MapDrawer";
 import WizardStepper, { type WizardStep } from "@/components/v2/WizardStepper";
 import { useGenerateStream } from "@/hooks/useGenerateStream";
 import {
+  DEFAULT_TRIP_FORM_STATE,
   formStateToTripRequest,
-  loadTripFormState,
   type TripFormState,
 } from "@/hooks/useTripFormState";
 import { useItineraryHistory, type SavedTrip } from "@/hooks/useItineraryHistory";
@@ -59,7 +59,7 @@ export default function TripPlannerV2() {
   const [executeView, setExecuteView] = useState<ExecuteView>("timeline");
   const [lastRequest, setLastRequest] = useState<TripRequest | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<PlanObjective>("value");
-  const [formState, setFormState] = useState<TripFormState>(() => loadTripFormState());
+  const [formState, setFormState] = useState<TripFormState>(DEFAULT_TRIP_FORM_STATE);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [mapOpen, setMapOpen] = useState(false);
   const [diffPair, setDiffPair] = useState<{ current: SavedTrip; baseline: SavedTrip } | null>(null);

@@ -112,8 +112,12 @@ export async function buildPricePreview(input: {
   maxHotelPerNight?: number;
 }): Promise<PricePreviewResult> {
   const run = async (): Promise<PricePreviewResult> => {
-  const { loadCtripCityIndex } = await import("../scrapers/ctrip-city-index");
-  await loadCtripCityIndex();
+  try {
+    const { loadCtripCityIndex } = await import("../scrapers/ctrip-city-index");
+    await loadCtripCityIndex();
+  } catch {
+    /* 携程索引可选，失败不阻断预查价 */
+  }
   const toCityInfo = await resolveCityInfo(input.city.trim());
   const req: TripRequest = {
     city: input.city.trim(),

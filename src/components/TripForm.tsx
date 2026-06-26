@@ -8,8 +8,10 @@ import PreferenceField from "@/components/trip-form/PreferenceField";
 import StrategyPresets from "@/components/trip-form/StrategyPresets";
 import {
   computeFormSummary,
+  DEFAULT_TRIP_FORM_STATE,
   loadTripFormState,
   saveTripFormState,
+  todayIso,
   type TripFormState,
 } from "@/hooks/useTripFormState";
 import {
@@ -99,10 +101,14 @@ function ToggleRow({
 }
 
 export default function TripForm({ onSubmit, loading, onStateChange, hideSubmit }: TripFormProps) {
-  const today = new Date().toISOString().split("T")[0];
-  const [state, setState] = useState<TripFormState>(() => loadTripFormState());
+  const today = todayIso();
+  const [state, setState] = useState<TripFormState>(DEFAULT_TRIP_FORM_STATE);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [confirmOpen, setConfirmOpen] = useState(false);
+
+  useEffect(() => {
+    setState(loadTripFormState());
+  }, []);
 
   const patch = useCallback((partial: Partial<TripFormState>) => {
     setState((prev) => ({ ...prev, ...partial }));

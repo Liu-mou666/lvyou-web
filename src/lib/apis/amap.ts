@@ -310,12 +310,11 @@ export interface AmapInputTipsResponse extends AmapResponse {
   tips?: Array<{ name: string; district?: string; adcode?: string; address?: string }>;
 }
 
-/** 城市输入提示 */
+/** 城市输入提示（高德 inputtips，勿用无效 datatype=city） */
 export async function fetchCityInputTips(keywords: string): Promise<Array<{ name: string; district: string }>> {
   if (!keywords.trim() || keywords.length < 2) return [];
   const data = await amapGet<AmapInputTipsResponse>("/assistant/inputtips", {
     keywords: keywords.trim(),
-    datatype: "city",
   });
   return (data.tips ?? [])
     .filter((t) => t.name && t.adcode)
