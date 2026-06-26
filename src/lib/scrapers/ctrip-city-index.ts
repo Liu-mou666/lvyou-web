@@ -1,6 +1,8 @@
 import { storeGetSync, storeSetSync } from "../cache/store";
 import { cacheKey, CACHE_TTL } from "../cache/memory";
 import { otaFetch } from "./http-fetch";
+import { isServerlessFastPath } from "../config";
+import { getCtripCityId } from "../data/platform-urls";
 
 export interface CtripCityEntry {
   name: string;
@@ -15,6 +17,9 @@ const INDEX_CACHE_KEY = cacheKey(["ctrip-city-index-v1"]);
 export async function loadCtripCityIndex(): Promise<CtripCityEntry[]> {
   const cached = storeGetSync<CtripCityEntry[]>(INDEX_CACHE_KEY);
   if (cached && cached.length > 100) return cached;
+
+  // 线上 Vercel 不爬携程 sitemap（冷启动 10s+ 且易触发预查价/生成超时）
+  if (isServerlessFastPath()) return cached ?? [];
 
   const html = await otaFetch("https://m.ctrip.com/webapp/hotel/sitemap/citylist/", {
     headers: { Accept: "text/html" },
@@ -97,8 +102,16 @@ export function resolveCtripCityIdSync(cityName: string): number | null {
 }
 
 /** 全国 cityId：加载索引后解析 */
-export async function resolveCtripCityIdBest(cityName: string): Promise<number | null> {
+export async function resolveCtripCityIdBest(
+  cityName: string,
+  adcode?: string,
+): Promise<number | null> {
+  if (adcode) {
+    const fromAdcode = getCtripCityId(adcode);
+    if (fromAdcode) return fromAdcode;
+  }
   const fromCache = resolveCtripCityIdSync(cityName);
   if (fromCache) return fromCache;
+  if (isServerlessFastPath()) return null;
   return resolveCtripCityId(cityName);
 }

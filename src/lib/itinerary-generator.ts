@@ -34,6 +34,7 @@ import type {
 } from "./types";
 import { applyBudgetToItinerary, inferBudgetLevelFromTotal } from "./engine/budget-planner";
 import { VARIANT_META, rebuildDayVisits } from "./engine/day-variant";
+import { isServerlessFastPath } from "./config";
 import { weatherLabel } from "./weather";
 import type { GenerateStreamEvent } from "./types/stream";
 
@@ -422,6 +423,19 @@ async function buildItineraryVariants(
 ): Promise<ItineraryVariant[]> {
   const objectives: PlanObjective[] = ["value", "time", "experience"];
   const mainObjective = objectiveFromPriority(req.priority);
+
+  if (isServerlessFastPath()) {
+    return objectives.map((obj) => ({
+      objective: obj,
+      label: VARIANT_META[obj].label,
+      description:
+        obj === mainObjective
+          ? VARIANT_META[obj].description
+          : `${VARIANT_META[obj].description}（线上精简版：行程与主方案一致，本地 npm run dev 可生成完整三套对比）`,
+      itinerary: main,
+    }));
+  }
+
   const variants: ItineraryVariant[] = [];
 
   for (const obj of objectives) {

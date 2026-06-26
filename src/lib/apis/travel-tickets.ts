@@ -63,9 +63,12 @@ async function legFromJuheMulti(
   date: string,
   travelers: number,
   seatPref: SeatPref = "second",
+  preview = false,
 ): Promise<LegResult | null> {
-  for (const fromSt of fromCandidates) {
-    for (const toSt of toCandidates) {
+  const fromList = preview ? fromCandidates.slice(0, 1) : fromCandidates;
+  const toList = preview ? toCandidates.slice(0, 1) : toCandidates;
+  for (const fromSt of fromList) {
+    for (const toSt of toList) {
       const juhe = await queryJuheTrainsMulti(fromSt, toSt, date, seatPref);
       if (!isTrainLegVerified(juhe)) continue;
 
@@ -116,8 +119,9 @@ async function resolveLeg(
   date: string,
   travelers: number,
   seatPref: SeatPref = "second",
+  preview = false,
 ): Promise<ResolvedLeg | null> {
-  const juhe = await legFromJuheMulti(fromCandidates, toCandidates, date, travelers, seatPref);
+  const juhe = await legFromJuheMulti(fromCandidates, toCandidates, date, travelers, seatPref, preview);
   if (juhe) {
     const best = juhe.juhe!.direct[0];
     return {
@@ -251,7 +255,7 @@ function assembleTransferRoute(
   };
 }
 
-function buildSearchOnlyRoute(
+export function buildSearchOnlyRoute(
   fromCandidates: RailStation[],
   toCandidates: RailStation[],
   date: string,
@@ -293,8 +297,9 @@ async function buildDirectRoute(
   date: string,
   travelers: number,
   seatPref: SeatPref = "second",
+  preview = false,
 ): Promise<TrainRoute | null> {
-  const leg = await legFromJuheMulti(fromCandidates, toCandidates, date, travelers, seatPref);
+  const leg = await legFromJuheMulti(fromCandidates, toCandidates, date, travelers, seatPref, preview);
   if (!leg) return null;
 
   const best = leg.juhe!.direct[0];
@@ -334,10 +339,11 @@ async function buildTransferRoute(
   fromName: string,
   toName: string,
   seatPref: SeatPref = "second",
+  preview = false,
 ): Promise<TrainRoute | null> {
   const hub = cand.hub;
-  const leg1 = await resolveLeg(fromCandidates, [hub], date, travelers, seatPref);
-  const leg2 = await resolveLeg([hub], toCandidates, date, travelers, seatPref);
+  const leg1 = await resolveLeg(fromCandidates, [hub], date, travelers, seatPref, preview);
+  const leg2 = await resolveLeg([hub], toCandidates, date, travelers, seatPref, preview);
   if (!leg1 || !leg2) return null;
   return assembleTransferRoute(leg1, leg2, hub, date, travelers, cand, priority, fromName, toName);
 }
@@ -346,7 +352,7 @@ async function buildTransferRoute(
 export async function buildOptimalTravelTickets(
   request: TripRequest,
   toCityInfo: CityInfo,
-  options?: { preview?: boolean },
+  options?: { preview?: boolean; fromCityInfo?: CityInfo },
 ): Promise<{
   trainRoutes: TrainRoute[];
   flightOption?: TrainRoute;
@@ -362,8 +368,13 @@ export async function buildOptimalTravelTickets(
   const priority = request.priority ?? "value";
   const seatPref = request.seatPref ?? "second";
 
-  const fromCity = await resolveCityInfo(fromName);
-  const routeInfo = await analyzeRoute(fromCity, toCityInfo);
+  const fromCity = options?.fromCityInfo ?? (await resolveCityInfo(fromName));
+  const routeInfo = options?.preview
+    ? (() => {
+        const km = haversineKm(fromCity, toCityInfo);
+        return { distanceKm: km, driveHours: Math.round(km / 80), driveCost: Math.round(km * 0.8 + 50) };
+      })()
+    : await analyzeRoute(fromCity, toCityInfo);
   const { distanceKm } = routeInfo;
 
   const fromCandidates = listStationsForCity(fromName, request.departureStationMode ?? "auto");
@@ -384,33 +395,38 @@ export async function buildOptimalTravelTickets(
   const transportEvidence: Evidence[] = [];
 
   if (fromPrimary && toPrimary) {
-    const direct = await buildDirectRoute(fromCandidates, toCandidates, date, travelers, seatPref);
+    const preview = options?.preview ?? false;
+    const direct = await buildDirectRoute(fromCandidates, toCandidates, date, travelers, seatPref, preview);
     if (direct) trainRoutes.push(direct);
 
-    const hubs = getHubStations();
-    const transfers = findTransferHubs(fromPrimary, toPrimary, hubs, {
-      priority,
-      totalBudget: request.totalBudget,
-      travelers,
-    });
-
-    const transferLimit = options?.preview ? 3 : 5;
-    const transferTasks = transfers.slice(0, transferLimit).map((cand) =>
-      buildTransferRoute(
-        fromCandidates,
-        toCandidates,
-        date,
-        travelers,
-        cand,
+    const transferLimit =
+      preview ? (direct?.verified ? 0 : 1) : 5;
+    if (transferLimit > 0) {
+      const hubs = getHubStations();
+      const transfers = findTransferHubs(fromPrimary, toPrimary, hubs, {
         priority,
-        fromName,
-        toName,
-        seatPref,
-      ),
-    );
-    const transferResults = await Promise.all(transferTasks);
-    for (const route of transferResults) {
-      if (route) trainRoutes.push(route);
+        totalBudget: request.totalBudget,
+        travelers,
+      });
+
+      const transferTasks = transfers.slice(0, transferLimit).map((cand) =>
+        buildTransferRoute(
+          fromCandidates,
+          toCandidates,
+          date,
+          travelers,
+          cand,
+          priority,
+          fromName,
+          toName,
+          seatPref,
+          preview,
+        ),
+      );
+      const transferResults = await Promise.all(transferTasks);
+      for (const route of transferResults) {
+        if (route) trainRoutes.push(route);
+      }
     }
 
     if (trainRoutes.length === 0) {

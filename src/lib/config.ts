@@ -56,3 +56,9 @@ export const CITY_ADCODES: Record<string, string> = {
 
 /** 热门城市快速联想（全国任意地名均可经高德 geocode 解析，不限此列表） */
 export const SUPPORTED_CITIES = Object.keys(CITY_ADCODES);
+
+/** Vercel 等无状态环境：跳过携程索引爬取与重型变体重算 */
+export function isServerlessFastPath(): boolean {
+  return process.env.VERCEL === "1" || process.env.PREFER_FAST_PATH === "1";
+}
+

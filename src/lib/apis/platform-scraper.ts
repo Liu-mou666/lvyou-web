@@ -176,7 +176,8 @@ export async function enrichPOIVerified(
 ): Promise<POI> {
   const travelers = opts?.travelers ?? 2;
   const ctripCityId =
-    (await resolveCtripCityIdBest(cityInfo.name)) ?? getCtripCityId(cityInfo.adcode);
+    getCtripCityId(cityInfo.adcode) ??
+    (await resolveCtripCityIdBest(cityInfo.name, cityInfo.adcode));
   let enriched = await enrichPriceFromSources(poi, travelers, cityInfo.name, {
     checkIn: opts?.checkIn,
     adcode: cityInfo.adcode,

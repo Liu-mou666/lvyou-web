@@ -6,7 +6,8 @@ import {
   type AmapPoi,
 } from "./amap";
 import { resolveCityInfo, type CityInfo } from "./city-resolver";
-import { enrichPOIVerified } from "./platform-scraper";
+import { enrichPOIVerified, buildPOILinks } from "./platform-scraper";
+import { isServerlessFastPath } from "../config";
 import { authorityBonus, matchAuthorityTag } from "../data/authority-lists";
 import { matchesDietary } from "../engine/constraint-parser";
 import type { BudgetLevel, MealPref, MealTime, POI, POIType, RankedAttraction, TravelStyle, WeatherForecast } from "../types";
@@ -383,6 +384,14 @@ export async function fetchHotelsNearLocation(
   });
 
   const picked = ranked.slice(0, limit + 2);
+
+  if (isServerlessFastPath()) {
+    return picked.slice(0, limit).map((p) => ({
+      ...p,
+      links: buildPOILinks(p, cityInfo, { checkIn }),
+      priceNote: p.priceNote ?? `参考 ¥${p.pricePerPerson}/晚 · 点携程查当晚实价`,
+    }));
+  }
 
   const verified: POI[] = [];
   for (const p of picked.slice(0, limit)) {

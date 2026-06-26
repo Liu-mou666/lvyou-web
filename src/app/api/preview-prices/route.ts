@@ -1,8 +1,9 @@
 import { buildPricePreview } from "@/lib/apis/preview-prices";
+import { hasJuheKey } from "@/lib/data/providers/train-juhe";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-export const maxDuration = 25;
+export const maxDuration = 30;
 
 const schema = z.object({
   departureCity: z.string().trim().min(1),
@@ -44,6 +45,16 @@ export async function POST(req: Request) {
     return NextResponse.json(preview);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "查价失败";
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json(
+      {
+        trainRoutes: [],
+        tickets: [],
+        juheConfigured: hasJuheKey(),
+        fetchedAt: new Date().toISOString(),
+        degraded: true,
+        warning: msg,
+      },
+      { status: 200 },
+    );
   }
 }

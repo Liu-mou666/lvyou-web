@@ -1,11 +1,11 @@
 import { resolveCityInfo } from "./city-resolver";
 import { fetchPOIDetail, searchPOI } from "./amap";
-import { buildOptimalTravelTickets } from "./travel-tickets";
+import { buildOptimalTravelTickets, buildSearchOnlyRoute } from "./travel-tickets";
 import { lookupPublicTicketHint } from "../engine/public-price-db";
 import { ctripTicketSearchUrl, getCtripCityId } from "../data/platform-urls";
-import { resolveCtripCityIdBest } from "../scrapers/ctrip-city-index";
 import type { PlatformLink, TrainRoute, TripRequest } from "../types";
 import { hasJuheKey } from "../data/providers/train-juhe";
+import { listStationsForCity, resolveStation } from "../data/station-db";
 
 export interface TicketPreviewItem {
   name: string;
@@ -24,6 +24,8 @@ export interface PricePreviewResult {
   juheConfigured: boolean;
   tickets: TicketPreviewItem[];
   fetchedAt: string;
+  degraded?: boolean;
+  warning?: string;
 }
 
 async function previewTicketForName(
@@ -33,9 +35,7 @@ async function previewTicketForName(
   travelers: number,
   visitDate: string,
 ): Promise<TicketPreviewItem> {
-  const city = cityName.replace(/市$/g, "");
-  const ctripCityId =
-    (await resolveCtripCityIdBest(cityName)) ?? getCtripCityId(adcode);
+  const ctripCityId = getCtripCityId(adcode);
   const links: PlatformLink[] = [
     {
       platform: "ctrip",
@@ -98,6 +98,17 @@ async function previewTicketForName(
   return { name, pricePerPerson, confidence, note, free, links };
 }
 
+function emptyPreviewWarning(msg: string): PricePreviewResult {
+  return {
+    trainRoutes: [],
+    juheConfigured: hasJuheKey(),
+    tickets: [],
+    fetchedAt: new Date().toISOString(),
+    degraded: true,
+    warning: msg,
+  };
+}
+
 export async function buildPricePreview(input: {
   departureCity: string;
   city: string;
@@ -112,68 +123,94 @@ export async function buildPricePreview(input: {
   maxHotelPerNight?: number;
 }): Promise<PricePreviewResult> {
   const run = async (): Promise<PricePreviewResult> => {
-  try {
-    const { loadCtripCityIndex } = await import("../scrapers/ctrip-city-index");
-    await loadCtripCityIndex();
-  } catch {
-    /* 携程索引可选，失败不阻断预查价 */
-  }
-  const toCityInfo = await resolveCityInfo(input.city.trim());
-  const req: TripRequest = {
-    city: input.city.trim(),
-    departureCity: input.departureCity.trim(),
-    days: 3,
-    style: "mixed",
-    pace: "normal",
-    budget: "moderate",
-    startDate: input.startDate,
-    travelers: input.travelers,
-    priority: input.priority ?? "value",
-    totalBudget: input.totalBudget ?? 0,
-    departureStationMode: input.departureStationMode ?? "auto",
-    preferDirectTrain: input.preferDirectTrain ?? false,
-    seatPref: input.seatPref ?? "second",
-    maxHotelPerNight: input.maxHotelPerNight ?? 0,
-  };
+    const [toCityInfo, fromCityInfo] = await Promise.all([
+      resolveCityInfo(input.city.trim()),
+      resolveCityInfo(input.departureCity.trim()),
+    ]);
 
-  const transport = await buildOptimalTravelTickets(req, toCityInfo, { preview: true });
-  let trainRoutes = transport.trainRoutes;
+    const req: TripRequest = {
+      city: input.city.trim(),
+      departureCity: input.departureCity.trim(),
+      days: 3,
+      style: "mixed",
+      pace: "normal",
+      budget: "moderate",
+      startDate: input.startDate,
+      travelers: input.travelers,
+      priority: input.priority ?? "value",
+      totalBudget: input.totalBudget ?? 0,
+      departureStationMode: input.departureStationMode ?? "auto",
+      preferDirectTrain: input.preferDirectTrain ?? false,
+      seatPref: input.seatPref ?? "second",
+      maxHotelPerNight: input.maxHotelPerNight ?? 0,
+    };
 
-  if (input.preferDirectTrain) {
-    const directOnly = trainRoutes.filter((r) => r.type === "direct" && r.verified);
-    if (directOnly.length > 0) {
-      trainRoutes = directOnly;
-      directOnly.forEach((r) => {
-        r.recommended = false;
+    let transport;
+    try {
+      transport = await buildOptimalTravelTickets(req, toCityInfo, {
+        preview: true,
+        fromCityInfo,
       });
-      const best = directOnly.reduce((a, b) => (a.totalPrice <= b.totalPrice ? a : b));
-      best.recommended = true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "交通查价失败";
+      const fromCandidates = listStationsForCity(req.departureCity ?? "上海", req.departureStationMode ?? "auto");
+      const toCandidates = listStationsForCity(toCityInfo.name, "auto");
+      return {
+        ...emptyPreviewWarning(msg),
+        trainRoutes: [
+          buildSearchOnlyRoute(
+            fromCandidates.length ? fromCandidates : [resolveStation(fromCityInfo.formattedAddress)!].filter(Boolean),
+            toCandidates.length ? toCandidates : [resolveStation(toCityInfo.formattedAddress)!].filter(Boolean),
+            req.startDate,
+            msg,
+          ),
+        ],
+      };
     }
-  }
 
-  const recommendedTrain = trainRoutes.find((r) => r.recommended) ?? trainRoutes[0];
+    let trainRoutes = transport.trainRoutes;
 
-  const mustNames = [...new Set(input.mustVisit?.filter(Boolean) ?? [])];
-  const tickets = await Promise.all(
-    mustNames.map((name) =>
-      previewTicketForName(name, toCityInfo.name, toCityInfo.adcode, input.travelers, input.startDate),
-    ),
-  );
+    if (input.preferDirectTrain) {
+      const directOnly = trainRoutes.filter((r) => r.type === "direct" && r.verified);
+      if (directOnly.length > 0) {
+        trainRoutes = directOnly;
+        directOnly.forEach((r) => {
+          r.recommended = false;
+        });
+        const best = directOnly.reduce((a, b) => (a.totalPrice <= b.totalPrice ? a : b));
+        best.recommended = true;
+      }
+    }
 
-  return {
-    trainRoutes,
-    recommendedTrain,
-    flightOption: transport.flightOption,
-    routeDistanceKm: transport.routeInfo.distanceKm,
-    juheConfigured: hasJuheKey(),
-    tickets,
-    fetchedAt: new Date().toISOString(),
+    const recommendedTrain = trainRoutes.find((r) => r.recommended) ?? trainRoutes[0];
+
+    const mustNames = [...new Set(input.mustVisit?.filter(Boolean) ?? [])];
+    const tickets = await Promise.all(
+      mustNames.map((name) =>
+        previewTicketForName(name, toCityInfo.name, toCityInfo.adcode, input.travelers, input.startDate),
+      ),
+    );
+
+    return {
+      trainRoutes,
+      recommendedTrain,
+      flightOption: transport.flightOption,
+      routeDistanceKm: transport.routeInfo.distanceKm,
+      juheConfigured: hasJuheKey(),
+      tickets,
+      fetchedAt: new Date().toISOString(),
+    };
   };
-  };
 
-  const timeoutMs = 14_000;
-  const timeout = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error("查价超时，请点刷新或先生成行程")), timeoutMs);
+  const timeoutMs = 22_000;
+  const timeout = new Promise<PricePreviewResult>((resolve) => {
+    setTimeout(
+      () =>
+        resolve({
+          ...emptyPreviewWarning("查价超时，可先点「确认并生成行程」或稍后刷新"),
+        }),
+      timeoutMs,
+    );
   });
 
   return Promise.race([run(), timeout]);
