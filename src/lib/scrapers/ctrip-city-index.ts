@@ -74,3 +74,31 @@ export async function resolveCtripCityId(cityName: string): Promise<number | nul
   );
   return fuzzy?.cityId ?? null;
 }
+
+/** 同步读缓存索引（需先 loadCtripCityIndex） */
+export function resolveCtripCityIdSync(cityName: string): number | null {
+  const cached = storeGetSync<CtripCityEntry[]>(INDEX_CACHE_KEY);
+  if (!cached?.length) return null;
+
+  const target = normCity(cityName);
+  const exact = cached.find((e) => normCity(e.name) === target && !e.parent);
+  if (exact) return exact.cityId;
+
+  const withSuffix = cached.find((e) => e.name === cityName.replace(/市$/, "") || e.name === target);
+  if (withSuffix) return withSuffix.cityId;
+
+  const county = cached.find((e) => normCity(e.name) === target && e.parent);
+  if (county) return county.cityId;
+
+  const fuzzy = cached.find(
+    (e) => !e.parent && (normCity(e.name).includes(target) || target.includes(normCity(e.name))),
+  );
+  return fuzzy?.cityId ?? null;
+}
+
+/** 全国 cityId：加载索引后解析 */
+export async function resolveCtripCityIdBest(cityName: string): Promise<number | null> {
+  const fromCache = resolveCtripCityIdSync(cityName);
+  if (fromCache) return fromCache;
+  return resolveCtripCityId(cityName);
+}

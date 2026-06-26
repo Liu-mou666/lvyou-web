@@ -3,6 +3,7 @@ import { fetchPOIDetail, searchPOI } from "./amap";
 import { buildOptimalTravelTickets } from "./travel-tickets";
 import { lookupPublicTicketHint } from "../engine/public-price-db";
 import { ctripTicketSearchUrl, getCtripCityId } from "../data/platform-urls";
+import { resolveCtripCityIdBest } from "../scrapers/ctrip-city-index";
 import type { PlatformLink, TrainRoute, TripRequest } from "../types";
 import { hasJuheKey } from "../data/providers/train-juhe";
 
@@ -33,7 +34,8 @@ async function previewTicketForName(
   visitDate: string,
 ): Promise<TicketPreviewItem> {
   const city = cityName.replace(/市$/g, "");
-  const ctripCityId = getCtripCityId(adcode);
+  const ctripCityId =
+    (await resolveCtripCityIdBest(cityName)) ?? getCtripCityId(adcode);
   const links: PlatformLink[] = [
     {
       platform: "ctrip",
@@ -110,6 +112,8 @@ export async function buildPricePreview(input: {
   maxHotelPerNight?: number;
 }): Promise<PricePreviewResult> {
   const run = async (): Promise<PricePreviewResult> => {
+  const { loadCtripCityIndex } = await import("../scrapers/ctrip-city-index");
+  await loadCtripCityIndex();
   const toCityInfo = await resolveCityInfo(input.city.trim());
   const req: TripRequest = {
     city: input.city.trim(),

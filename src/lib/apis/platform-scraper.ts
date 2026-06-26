@@ -13,7 +13,6 @@ import {
   ctripHotelMobileUrl,
   ctripHotelSearchUrl,
   ctripSightCityUrl,
-  ctripTicketPcUrl,
   ctripTicketSearchUrl,
   dianpingSearchUrl,
   fliggyHotelSearchUrl,
@@ -23,6 +22,7 @@ import {
   sanitizeHotelKeyword,
   sanitizeSightKeyword,
 } from "../data/platform-urls";
+import { resolveCtripCityIdBest } from "../scrapers/ctrip-city-index";
 
 function nextDay(date: string): string {
   const d = new Date(date);
@@ -37,11 +37,11 @@ function isExperienceShop(poi: POI): boolean {
 export function buildPOILinks(
   poi: POI,
   cityInfo: CityInfo,
-  opts?: { checkIn?: string },
+  opts?: { checkIn?: string; ctripCityId?: number | null },
 ): PlatformLink[] {
   const shopName = poi.name.trim();
   const city = cityInfo.name.replace(/市$/g, "");
-  const ctripCityId = getCtripCityId(cityInfo.adcode);
+  const ctripCityId = opts?.ctripCityId ?? getCtripCityId(cityInfo.adcode);
   const dpCityId = getDianpingCityId(cityInfo.adcode);
   const checkIn = opts?.checkIn ?? new Date().toISOString().split("T")[0];
   const checkOut = nextDay(checkIn);
@@ -95,13 +95,7 @@ export function buildPOILinks(
         {
           platform: "ctrip",
           label: "携程",
-          action: "搜门票",
-          url: ctripTicketPcUrl(city, shopName, ctripCityId),
-        },
-        {
-          platform: "ctrip",
-          label: "携程手机",
-          action: "手机查门票",
+          action: "查门票",
           url: ctripTicketSearchUrl(city, shopName, ctripCityId),
         },
         {
@@ -181,12 +175,14 @@ export async function enrichPOIVerified(
   opts?: { checkIn?: string; travelers?: number },
 ): Promise<POI> {
   const travelers = opts?.travelers ?? 2;
+  const ctripCityId =
+    (await resolveCtripCityIdBest(cityInfo.name)) ?? getCtripCityId(cityInfo.adcode);
   let enriched = await enrichPriceFromSources(poi, travelers, cityInfo.name, {
     checkIn: opts?.checkIn,
     adcode: cityInfo.adcode,
     cityName: cityInfo.name,
   });
-  const links = buildPOILinks(enriched, cityInfo, opts);
+  const links = buildPOILinks(enriched, cityInfo, { ...opts, ctripCityId });
   const deals = buildVerifiedDeals(enriched, links);
   const checkIn = opts?.checkIn;
 
