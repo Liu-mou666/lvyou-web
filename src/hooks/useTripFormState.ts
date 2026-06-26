@@ -6,7 +6,8 @@ import {
   PACE_ATTRACTIONS,
   STATION_MODES,
 } from "@/lib/trip-form-options";
-import type { BudgetLevel, TravelPace } from "@/lib/types";
+import type { BudgetLevel, TravelPace, TripRequest } from "@/lib/types";
+import { buildTripRequest, tripRequestSchema } from "@/lib/validation/trip-schema";
 
 export interface TripFormState {
   city: string;
@@ -126,4 +127,59 @@ export function computeFormSummary(state: TripFormState) {
     stationLabel,
     budgetLocked: state.totalBudget > 0,
   };
+}
+
+export function formStateToPayload(state: TripFormState) {
+  return {
+    city: state.city.trim(),
+    departureCity: state.departureCity.trim(),
+    days: state.days,
+    style: state.style,
+    pace: state.pace,
+    budget: state.budget,
+    startDate: state.startDate,
+    travelers: state.travelers,
+    priority: state.priority,
+    transportPref: state.transportPref,
+    mealPref: state.mealPref,
+    avoidCrowd: state.avoidCrowd,
+    maxMealBudget: state.maxMealBudget,
+    totalBudget: state.totalBudget,
+    notes: state.notes.trim() || undefined,
+    departureStationMode: state.departureStationMode,
+    mustVisit: state.mustVisitText
+      .split(/[,，、/|]/)
+      .map((s) => s.trim())
+      .filter(Boolean),
+    exclude: state.excludeText
+      .split(/[,，、/|]/)
+      .map((s) => s.trim())
+      .filter(Boolean),
+    maxWalkKmPerDay: state.maxWalkKmPerDay,
+    withChildren: state.withChildren,
+    withElderly: state.withElderly,
+    accessibility: state.accessibility,
+    dayStart: state.dayStart,
+    seatPref: state.seatPref,
+    preferDirectTrain: state.preferDirectTrain,
+    maxTicketPerPerson: state.maxTicketPerPerson,
+    dietary: state.dietary.length > 0 ? state.dietary : undefined,
+    maxHotelPerNight: state.maxHotelPerNight,
+  };
+}
+
+export function formStateToTripRequest(state: TripFormState): {
+  trip: TripRequest | null;
+  errors: Record<string, string>;
+} {
+  const parsed = tripRequestSchema.safeParse(formStateToPayload(state));
+  if (!parsed.success) {
+    const errors: Record<string, string> = {};
+    for (const issue of parsed.error.issues) {
+      const key = String(issue.path[0] ?? "form");
+      if (!errors[key]) errors[key] = issue.message;
+    }
+    return { trip: null, errors };
+  }
+  return { trip: buildTripRequest(parsed.data), errors: {} };
 }

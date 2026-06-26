@@ -1,6 +1,6 @@
 {
   "name": "lvyou-web",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
     "dev:hot": "next dev --webpack --no-server-fast-refresh",
@@ -9,9 +9,11 @@
     "start": "next start",
     "lint": "eslint",
     "test": "npx tsx --test src/lib/__tests__/*.test.ts",
+    "test:e2e": "npx playwright test",
     "scrape:test": "npx tsx scripts/test-ota-scrape.ts",
     "scrape:login": "npx tsx scripts/scrape-login.ts",
-    "setup:ota": "npx tsx scripts/setup-ota.ts"
+    "setup:ota": "npx tsx scripts/setup-ota.ts",
+    "price-node": "npx tsx scripts/price-node.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.1",

@@ -123,6 +123,8 @@ export interface POI extends Location {
   freeAttraction?: boolean;
   /** 价格可信度 */
   priceConfidence?: "high" | "medium" | "low" | "none";
+  /** 旅优 2.0 统一价格真值 */
+  priceTruth?: import("./price-truth").PriceTruth;
 }
 
 export interface WeatherForecast {

@@ -1,7 +1,7 @@
 {
-  "name": "旅优 · 智能旅游攻略",
+  "name": "旅优 · 全国智能规划 2.0",
   "short_name": "旅优",
-  "description": "高德 POI + 铁路站码库 + 5A 名录，可溯源的旅行决策参考",
+  "description": "PriceTruth 真值标注 · 全国引擎 · 三屏向导智能行程",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#fff9f5",

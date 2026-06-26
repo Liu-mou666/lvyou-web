@@ -32,6 +32,8 @@ interface TripFormProps {
   onSubmit: (request: TripRequest) => void;
   loading: boolean;
   onStateChange?: (state: TripFormState) => void;
+  /** 2.0 向导模式：隐藏底部生成按钮 */
+  hideSubmit?: boolean;
 }
 
 const INPUT_CLS =
@@ -96,7 +98,7 @@ function ToggleRow({
   );
 }
 
-export default function TripForm({ onSubmit, loading, onStateChange }: TripFormProps) {
+export default function TripForm({ onSubmit, loading, onStateChange, hideSubmit }: TripFormProps) {
   const today = new Date().toISOString().split("T")[0];
   const [state, setState] = useState<TripFormState>(() => loadTripFormState());
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -509,11 +511,13 @@ export default function TripForm({ onSubmit, loading, onStateChange }: TripFormP
           </FormSection>
         </div>
 
-        <div className="trip-form-footer">
-          <button type="submit" disabled={loading} className="btn-primary">
-            {loading ? "生成中…" : "生成参考行程"}
-          </button>
-        </div>
+        {!hideSubmit && (
+          <div className="trip-form-footer">
+            <button type="submit" disabled={loading} className="btn-primary">
+              {loading ? "生成中…" : "生成参考行程"}
+            </button>
+          </div>
+        )}
       </form>
 
       <GenerateConfirmDialog

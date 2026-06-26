@@ -2,6 +2,7 @@ import { fetchPOIDetail } from "./amap";
 import { inferMarketPriceRange } from "../engine/price-intelligence";
 import { applyPublicTicketHint } from "../engine/public-price-db";
 import { scrapeOtaPrice, isOtaScrapeEnabled } from "../scrapers/ota-scraper";
+import { mergePriceTruthFromEnrich } from "../price-truth";
 import type { POI } from "../types";
 import { storeGetSync, storeSetSync, CACHE_TTL } from "../cache/store";
 import { cacheKey } from "../cache/memory";
@@ -130,6 +131,7 @@ export async function enrichPriceFromSources(
     next.cost = Math.round(next.pricePerPerson * travelers);
   }
 
+  next = mergePriceTruthFromEnrich(next, travelers);
   storeSetSync(cacheId, next, CACHE_TTL.poi);
   return next;
 }

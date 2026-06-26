@@ -7,6 +7,8 @@ interface ItineraryHistoryPanelProps {
   onLoad: (item: SavedTrip) => void;
   onRemove: (id: string) => void;
   onExport: (item: SavedTrip) => void;
+  /** 2.0：与当前行程对比 */
+  onCompare?: (item: SavedTrip) => void;
 }
 
 export default function ItineraryHistoryPanel({
@@ -14,6 +16,7 @@ export default function ItineraryHistoryPanel({
   onLoad,
   onRemove,
   onExport,
+  onCompare,
 }: ItineraryHistoryPanelProps) {
   if (items.length === 0) return null;
 
@@ -41,6 +44,15 @@ export default function ItineraryHistoryPanel({
               >
                 载入
               </button>
+              {onCompare && (
+                <button
+                  type="button"
+                  onClick={() => onCompare(item)}
+                  className="rounded-lg border border-warm-400 px-2.5 py-1.5 text-xs font-medium text-warm-700"
+                >
+                  对比
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => onExport(item)}

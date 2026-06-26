@@ -78,30 +78,46 @@ export function getDianpingCityId(adcode: string): number {
   return ADCODE_PREFIX_TO_DIANPING[prefix] ?? 2;
 }
 
-/** 解析全国任意地名（省/市/区/县/镇） */
+/** 解析全国任意地名（省/市/区/县/镇/景区） */
 export async function resolveCityInfo(input: string): Promise<CityInfo> {
-  const data = await amapGet<AmapGeoResponse & { geocodes?: Array<{
-    adcode: string;
-    location: string;
-    formatted_address: string;
-    province: string;
-    city: string;
-    district: string;
-  }> }>("/geocode/geo", { address: input });
-
-  const geo = data.geocodes?.[0];
-  if (!geo?.location) {
-    throw new Error(`无法识别「${input}」，请输入标准地名，如：杭州、九寨沟县、香格里拉、乌镇`);
+  const query = input.trim();
+  const candidates = [query];
+  // 县镇景区：无行政后缀时补试，减少落位到同名村
+  if (!/[省市县区镇乡村]$/.test(query) && query.length >= 2 && query.length <= 8) {
+    if (/寨|沟|山|湖|岛|谷|坪|坝/.test(query)) {
+      candidates.push(`${query}景区`, `${query}县`);
+    }
   }
 
-  const [lng, lat] = geo.location.split(",").map(Number);
-  return {
-    name: input.trim(),
-    adcode: geo.adcode,
-    cityAdcode: toCityLevelAdcode(geo.adcode),
-    province: geo.province || "",
-    lat,
-    lng,
-    formattedAddress: geo.formatted_address || input,
-  };
+  let lastErr: Error | null = null;
+  for (const address of candidates) {
+    try {
+      const data = await amapGet<AmapGeoResponse & { geocodes?: Array<{
+        adcode: string;
+        location: string;
+        formatted_address: string;
+        province: string;
+        city: string;
+        district: string;
+      }> }>("/geocode/geo", { address });
+
+      const geo = data.geocodes?.[0];
+      if (!geo?.location) continue;
+
+      const [lng, lat] = geo.location.split(",").map(Number);
+      return {
+        name: query,
+        adcode: geo.adcode,
+        cityAdcode: toCityLevelAdcode(geo.adcode),
+        province: geo.province || "",
+        lat,
+        lng,
+        formattedAddress: geo.formatted_address || query,
+      };
+    } catch (e) {
+      lastErr = e instanceof Error ? e : new Error(String(e));
+    }
+  }
+
+  throw lastErr ?? new Error(`无法识别「${input}」，请输入标准地名，如：杭州、九寨沟县、香格里拉、乌镇`);
 }

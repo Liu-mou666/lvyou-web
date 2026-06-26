@@ -1,6 +1,8 @@
 "use client";
 
 import type { POI } from "@/lib/types";
+import PriceBadge from "@/components/v2/PriceBadge";
+import { poiToPriceTruth } from "@/lib/price-truth";
 import {
   formatPriceLine,
   pickCompareUrls,
@@ -66,10 +68,13 @@ export default function PriceCheckBar({ poi, travelers = 2, compact = false }: P
     .filter((l) => !l.url.startsWith("tel:") && l.url !== primary?.url)
     .slice(0, 4);
 
+  const truth = poiToPriceTruth(poi, travelers);
+
   return (
     <div className="mt-3 rounded-xl border border-warm-200 bg-gradient-to-br from-warm-50 to-white p-3 shadow-sm">
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-xs font-semibold text-warm-text">智能查价</p>
+        <PriceBadge truth={truth} compact />
         <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${CONF_BADGE[conf] ?? CONF_BADGE.none}`}>
           {CONF_TEXT[conf] ?? "待查"}
         </span>

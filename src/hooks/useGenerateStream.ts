@@ -26,6 +26,8 @@ function mergePartial(prev: Itinerary | null, patch: Partial<Itinerary>): Itiner
   return { ...base, ...patch, days: patch.days ?? base.days };
 }
 
+const GENERATE_CLIENT_TIMEOUT_MS = 105_000;
+
 export function useGenerateStream() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<GenerateProgressState | null>(null);
@@ -77,12 +79,16 @@ export function useGenerateStream() {
       setItinerary(null);
 
       try {
+        const timeoutId = setTimeout(() => controller.abort(), GENERATE_CLIENT_TIMEOUT_MS);
+
         const res = await fetch("/api/generate/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(request),
           signal: controller.signal,
         });
+
+        clearTimeout(timeoutId);
 
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
@@ -127,7 +133,10 @@ export function useGenerateStream() {
           }
         }
       } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (err instanceof DOMException && err.name === "AbortError") {
+          setError("生成超时，请缩短天数或稍后重试");
+          return;
+        }
         setError(err instanceof Error ? err.message : "生成失败");
       } finally {
         setLoading(false);

@@ -394,7 +394,7 @@ export async function buildOptimalTravelTickets(
       travelers,
     });
 
-    const transferLimit = options?.preview ? 3 : 12;
+    const transferLimit = options?.preview ? 3 : 5;
     const transferTasks = transfers.slice(0, transferLimit).map((cand) =>
       buildTransferRoute(
         fromCandidates,
