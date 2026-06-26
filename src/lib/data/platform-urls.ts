@@ -111,36 +111,31 @@ export function fliggyPoiSearchUrl(keyword: string): string {
   return `https://h5.m.taobao.com/trip/poi/search.html?keyword=${enc(sanitizeCtripKeyword(keyword))}`;
 }
 
-/** 携程 PC 门票搜索（piao 域名，PC 不会跳首页） */
-export function ctripTicketPcUrl(cityName: string, keyword: string, cityId?: number | null): string {
-  const kw = sanitizeSightKeyword(keyword, cityName);
+/** 携程门票 dest 路径（piao.ctrip.com/ticket/dest/t-城市-景点.html，PC 直达不跳 huodong 首页） */
+function ctripTicketDestSlug(cityName: string, keyword: string): string {
   const city = cityName.replace(/市$/g, "");
-  const q = new URLSearchParams({
-    keyword: kw,
-    cityName: city,
-    searchType: "1",
-  });
-  if (cityId) q.set("cid", String(cityId));
-  return `https://piao.ctrip.com/ticket/list?${q.toString()}`;
+  const kw = sanitizeSightKeyword(keyword, cityName);
+  return `t-${city}-${kw}`;
 }
 
-/** 携程玩乐频道搜索（无 cityId 时更稳） */
-export function ctripHuodongTicketUrl(cityName: string, keyword: string): string {
-  const kw = sanitizeSightKeyword(keyword, cityName);
-  const city = cityName.replace(/市$/g, "");
-  const q = new URLSearchParams({
-    pagetype: "city",
-    citytype: "dt",
-    keyword: kw,
-    name: city,
-  });
-  return `https://huodong.ctrip.com/things-to-do/list?${q.toString()}`;
+/** 携程 PC 门票搜索 */
+export function ctripTicketPcUrl(cityName: string, keyword: string, _cityId?: number | null): string {
+  const slug = encodeURI(ctripTicketDestSlug(cityName, keyword));
+  return `https://piao.ctrip.com/ticket/dest/${slug}.html`;
 }
 
-/** 携程门票深链：PC 优先 piao.ctrip.com（勿用 m.ctrip.com，PC 会跳首页） */
+/** @deprecated huodong/list 已统一 302 到 web-home，请用 ctripTicketPcUrl */
+export function ctripHuodongTicketUrl(cityName: string, keyword: string, cityId?: number | null): string {
+  if (cityId) {
+    const sight = ctripSightCityUrl(cityId);
+    if (sight) return sight;
+  }
+  return ctripTicketPcUrl(cityName, keyword, cityId);
+}
+
+/** 携程门票深链：统一走 piao dest（勿用 huodong/list 或 mob 域名） */
 export function ctripTicketSearchUrl(cityName: string, keyword: string, cityId?: number | null): string {
-  if (cityId) return ctripTicketPcUrl(cityName, keyword, cityId);
-  return ctripHuodongTicketUrl(cityName, keyword);
+  return ctripTicketPcUrl(cityName, keyword, cityId);
 }
 
 /** 携程景点城市列表（PC 兜底，可手动搜） */
@@ -150,13 +145,10 @@ export function ctripSightCityUrl(cityId: number): string | null {
   return `https://you.ctrip.com/sight/${slug}${cityId}.html`;
 }
 
-/** 本地玩乐/妆造 — 走 huodong 关键词搜，避免跳首页 */
+/** 本地玩乐/妆造 */
 export function ctripActivitySearchUrl(cityName: string, keyword: string, cityId?: number | null): string {
   const kw = sanitizeSightKeyword(`${keyword} 体验`, cityName);
-  if (cityId) {
-    return ctripTicketPcUrl(cityName, kw, cityId);
-  }
-  return ctripHuodongTicketUrl(cityName, kw);
+  return ctripTicketPcUrl(cityName, kw, cityId);
 }
 
 /** 携程 PC 酒店 — directSearch + searchWord 才能精确到具体酒店 */
@@ -180,11 +172,16 @@ export function dianpingSearchUrl(cityId: number, keyword: string): string {
   return `https://www.dianping.com/search/keyword/${cityId}/0_${enc(sanitizeCtripKeyword(keyword))}`;
 }
 
-/** 美团移动端搜索 */
-export function meituanSearchUrl(cityName: string, keyword: string): string {
-  const q = enc(sanitizeCtripKeyword(keyword));
-  const city = enc(cityName.replace(/市$/g, ""));
-  return `https://mob.meituan.com/ssr/page/searchlist?keyword=${q}&entrance=1&city=${city}`;
+/**
+ * 美团餐饮搜索（i.meituan.com 可解析；mob.meituan.com 在多数网络 DNS 不存在）
+ * @param dianpingCityId 大众点评城市 ID，与美团同城体系一致，用于提升命中
+ */
+export function meituanSearchUrl(cityName: string, keyword: string, dianpingCityId?: number): string {
+  const kw = sanitizeCtripKeyword(keyword);
+  const city = cityName.replace(/市$/g, "");
+  const q = new URLSearchParams({ keyword: kw, city });
+  if (dianpingCityId) q.set("ci", String(dianpingCityId));
+  return `https://i.meituan.com/poi/search?${q.toString()}`;
 }
 
 /** 高德 POI 详情 */
@@ -211,14 +208,9 @@ export function ctripHotelMobileUrl(
   return `https://m.ctrip.com/webapp/hotel/hotellist?keyword=${enc(cityName.replace(/市$/g, "") + " " + sanitizeHotelKeyword(keyword, cityName))}&checkin=${checkIn}&checkout=${checkOut}`;
 }
 
-/** 携程门票 H5（仅手机端） */
+/** 携程门票 H5（与 PC 共用 piao dest，避免 huodong 跳首页） */
 export function ctripTicketMobileUrl(cityName: string, keyword: string, cityId?: number | null): string {
-  const kw = sanitizeSightKeyword(keyword, cityName);
-  const city = cityName.replace(/市$/g, "");
-  if (cityId) {
-    return `https://m.ctrip.com/webapp/ticket/list?keyword=${enc(kw)}&cid=${cityId}&cityName=${enc(city)}`;
-  }
-  return ctripHuodongTicketUrl(cityName, keyword);
+  return ctripTicketPcUrl(cityName, keyword, cityId);
 }
 
 /** 飞猪酒店搜索 */

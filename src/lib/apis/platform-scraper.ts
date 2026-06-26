@@ -68,7 +68,7 @@ export function buildPOILinks(
         platform: "meituan",
         label: "美团",
         action: "查看店铺",
-        url: meituanSearchUrl(city, shopName),
+        url: meituanSearchUrl(city, shopName, dpCityId),
       },
     );
   }
