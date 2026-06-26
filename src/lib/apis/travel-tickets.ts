@@ -22,6 +22,7 @@ import {
 } from "../engine/transport-graph";
 import type { Evidence, PlatformLink, SeatPref, TrainRoute, TripRequest } from "../types";
 import { fetchDrivingRoute } from "./amap";
+import { isServerlessFastPath } from "../config";
 
 interface RouteAnalysis {
   distanceKm: number;
@@ -438,11 +439,11 @@ export async function buildOptimalTravelTickets(
 
   if (fromPrimary && toPrimary) {
     const preview = options?.preview ?? false;
-    const direct = await buildDirectRoute(fromCandidates, toCandidates, date, travelers, seatPref, preview);
+    const fastJuhe = preview || isServerlessFastPath();
+    const direct = await buildDirectRoute(fromCandidates, toCandidates, date, travelers, seatPref, fastJuhe);
     if (direct) trainRoutes.push(direct);
 
-    const transferLimit =
-      preview ? (direct?.verified ? 0 : 1) : 5;
+    const transferLimit = preview ? (direct?.verified ? 0 : 1) : fastJuhe ? 1 : 5;
     if (transferLimit > 0) {
       const hubs = getHubStations();
       const transfers = findTransferHubs(fromPrimary, toPrimary, hubs, {
@@ -462,7 +463,7 @@ export async function buildOptimalTravelTickets(
           fromName,
           toName,
           seatPref,
-          preview,
+          fastJuhe,
         ),
       );
       const transferResults = await Promise.all(transferTasks);

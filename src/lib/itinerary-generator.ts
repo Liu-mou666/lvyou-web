@@ -14,6 +14,7 @@ import { enrichPOIVerified } from "./apis/platform-scraper";
 import { clusterDistributeAttractions } from "./engine/geo-cluster";
 import { auditItineraryPrices } from "./engine/price-audit";
 import type { CityInfo } from "./apis/city-resolver";
+import { resolveCityInfoCached } from "./apis/city-resolver";
 import { calcOptimizationScore, optimizeRouteWithTimeWindows, totalRouteDistance } from "./optimizer";
 import { planRealRoute } from "./apis/route-planner";
 import { minutesToTime, rankPOIs } from "./realtime-engine";
@@ -612,7 +613,8 @@ export async function generateItineraryWithProgress(
         : request.budget;
     const req: TripRequest = { ...request, budget: effectiveBudget, travelers };
 
-    const cityInfo = await resolveCityInfo(req.city);
+    const cityInfo =
+      resolveCityInfoCached(req.city) ?? (await resolveCityInfo(req.city));
     emitProgress("city", 12, `已定位 ${cityInfo.formattedAddress}`);
 
     const pace = effectivePace(req);
@@ -676,6 +678,7 @@ export async function generateItineraryWithProgress(
     const dayPlans: DayPlan[] = [];
     const daySpan = 40 / req.days;
     const assignedIds = new Set<string>();
+    const dayInputs: { d: number; dayAttrs: POI[] }[] = [];
 
     for (let d = 0; d < req.days; d++) {
       let dayAttrs = dayAttractionLists[d] ?? [];
@@ -683,22 +686,39 @@ export async function generateItineraryWithProgress(
         dayAttrs = attractionPool.filter((p) => !assignedIds.has(p.id)).slice(0, perDay);
       }
       dayAttrs.forEach((p) => assignedIds.add(p.id));
-      emitProgress(
-        `day-${d}`,
-        55 + Math.round(daySpan * d),
-        `正在规划第 ${d + 1} 天行程…`,
+      dayInputs.push({ d, dayAttrs });
+    }
+
+    if (isServerlessFastPath()) {
+      emitProgress("days", 60, `并行规划 ${req.days} 天行程…`);
+      const built = await Promise.all(
+        dayInputs.map(({ d, dayAttrs }) =>
+          buildDayPlan(d, forecasts[d].date, forecasts[d], dayAttrs, cityInfo, req, specialPOIs),
+        ),
       );
-      const dayPlan = await buildDayPlan(
-        d,
-        forecasts[d].date,
-        forecasts[d],
-        dayAttrs,
-        cityInfo,
-        req,
-        specialPOIs,
-      );
-      dayPlans.push(dayPlan);
-      emit({ type: "day", day: d + 1, dayPlan });
+      built.forEach((dayPlan, i) => {
+        dayPlans.push(dayPlan);
+        emit({ type: "day", day: i + 1, dayPlan });
+      });
+    } else {
+      for (const { d, dayAttrs } of dayInputs) {
+        emitProgress(
+          `day-${d}`,
+          55 + Math.round(daySpan * d),
+          `正在规划第 ${d + 1} 天行程…`,
+        );
+        const dayPlan = await buildDayPlan(
+          d,
+          forecasts[d].date,
+          forecasts[d],
+          dayAttrs,
+          cityInfo,
+          req,
+          specialPOIs,
+        );
+        dayPlans.push(dayPlan);
+        emit({ type: "day", day: d + 1, dayPlan });
+      }
     }
 
     const allScores: number[] = [];

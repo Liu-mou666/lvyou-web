@@ -6,6 +6,7 @@ import {
 } from "./amap";
 import type { POI, TransportLeg, TransportMode, TransportPref } from "../types";
 import { distance } from "../optimizer";
+import { isServerlessFastPath } from "../config";
 
 /** 调用高德路径规划 API，返回真实出行方案 */
 export async function planRealRoute(
@@ -17,9 +18,13 @@ export async function planRealRoute(
   transportPref: TransportPref = "mixed",
   maxWalkKm = 8,
 ): Promise<TransportLeg> {
+  const km = distance(from, to);
+  if (isServerlessFastPath()) {
+    return fallbackRoute(from, to, travelers, rainy, km, transportPref);
+  }
+
   const origin = toOrigin(from);
   const destination = toOrigin(to);
-  const km = distance(from, to);
 
   try {
     // 步行优先

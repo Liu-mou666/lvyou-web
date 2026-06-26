@@ -523,7 +523,10 @@ export async function fetchRealAttractions(
   const cached = storeGetSync<AttractionFetchResult>(cacheId);
   if (cached) return cached;
 
-  const keywords = [...STYLE_KEYWORDS[style], ...get5aSearchTerms(cityInfo.name)];
+  const fast = isServerlessFastPath();
+  const keywords = fast
+    ? [...STYLE_KEYWORDS[style]].slice(0, 3)
+    : [...STYLE_KEYWORDS[style], ...get5aSearchTerms(cityInfo.name)];
   const all: POI[] = [];
   const searchLimit = pLimit(2);
 
@@ -576,15 +579,24 @@ export async function fetchRealAttractions(
   const rest = deduped.filter((p) => !ordered.some((o) => o.id === p.id));
   const candidates = [...ordered, ...rest].slice(0, fetchCount);
 
-  const enrichLimit = pLimit(3);
-  const verified = await Promise.all(
-    candidates.map((poi) =>
-      enrichLimit(async () => {
-        const withPhoto = await enrichPhotos(poi);
-        return enrichPOIVerified(withPhoto, cityInfo, { travelers: opts?.travelers ?? 2 });
-      }),
-    ),
-  );
+  let verified: POI[];
+  if (fast) {
+    verified = candidates.map((poi) => ({
+      ...poi,
+      links: buildPOILinks(poi, cityInfo, {}),
+      priceNote: poi.priceNote ?? "线上精简：生成后点链接查实价",
+    }));
+  } else {
+    const enrichLimit = pLimit(3);
+    verified = await Promise.all(
+      candidates.map((poi) =>
+        enrichLimit(async () => {
+          const withPhoto = await enrichPhotos(poi);
+          return enrichPOIVerified(withPhoto, cityInfo, { travelers: opts?.travelers ?? 2 });
+        }),
+      ),
+    );
+  }
 
   const maxTicket = opts?.maxTicketPerPerson ?? 0;
   const filtered =

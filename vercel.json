@@ -1,5 +1,8 @@
 {
   "functions": {
+    "src/app/api/city-suggest/route.ts": {
+      "maxDuration": 10
+    },
     "src/app/api/preview-prices/route.ts": {
       "maxDuration": 10
     },
